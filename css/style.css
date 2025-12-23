@@ -1,0 +1,605 @@
+  /* 基础重置 */
+  body {
+      margin: 0;
+      padding: 0;
+      background: #000;
+      color: #fff;
+      font-family: 'Consolas', 'Monaco', sans-serif;
+      overflow: hidden;
+      user-select: none;
+  }
+
+  /* 容器 */
+#game-wrapper {
+    position: relative;
+    width: 100vw;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+}
+
+/* Canvas 容器：保持像素比例，居中 */
+#canvas-container {
+    position: relative;
+    width: 672px;
+    height: 672px;
+    /* 14 * 16 * 3倍缩放 */
+    box-shadow: 0 0 30px rgba(0, 0, 0, 0.8);
+    background: #222;
+}
+
+canvas {
+    width: 100%;
+    height: 100%;
+    image-rendering: pixelated;
+    display: block;
+}
+
+  /* UI 覆盖层通用样式 */
+  .ui-layer {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0, 0, 0, 0.85);
+      transition: opacity 0.2s;
+      z-index: 10;
+  }
+
+  .hidden {
+      display: none !important;
+      opacity: 0;
+      pointer-events: none;
+  }
+
+  /* 标题画面 */
+  #ui-title {
+      background-image: url('../assets/titlekurai.png');
+      /* 你的壁纸 */
+      background-size: cover;
+      background-position: right center;
+      background-color: #111;
+      /* 壁纸加载前的底色 */
+  }
+
+  .logo-area {
+      margin-bottom: 50px;
+      text-align: center;
+  }
+
+  .logo-main {
+      font-size: 72px;
+      font-weight: 300;
+      color: #fff;
+      text-shadow: 4px 4px 0 #000, -2px -2px 0 #444;
+      letter-spacing: 5px;
+      font-family: 'Arial', 'Helvetica', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  }
+
+  .logo-main .smaller {
+      font-size: 50%;
+      vertical-align: middle;
+  }
+
+  .logo-main .medium {
+      font-size: 75%;
+      vertical-align: middle;
+  }
+
+  .logo-main .bug-text {
+      position: relative;
+      top: 8px;
+  }
+
+  .logo-sub {
+      font-size: 18px;
+      color: #aaa;
+      margin-top: 10px;
+  }
+
+  .menu-btn {
+      background: rgba(0, 0, 0, 0.7);
+      border: 2px solid #666;
+      color: #eee;
+      padding: 15px 40px;
+      margin: 10px;
+      font-size: 20px;
+      cursor: pointer;
+      transition: all 0.2s;
+      min-width: 200px;
+      text-transform: uppercase;
+  }
+
+  .menu-btn:hover {
+      background: #fff;
+      color: #000;
+      border-color: #fff;
+      transform: scale(1.05);
+  }
+
+  .version-text {
+      position: absolute;
+      bottom: 15px;
+      left: 15px;
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.4);
+  }
+
+  /* 选关画面 */
+  #ui-select {
+      align-items: stretch;
+      padding: 40px;
+      box-sizing: border-box;
+  }
+
+  .select-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+      border-bottom: 1px solid #444;
+      padding-bottom: 10px;
+  }
+
+  .pack-tabs {
+      display: flex;
+      gap: 10px;
+  }
+
+  .tab-btn {
+      background: transparent;
+      border: none;
+      color: #666;
+      cursor: pointer;
+      font-size: 16px;
+      padding: 5px 10px;
+  }
+
+  .tab-btn.active {
+      color: #fff;
+      border-bottom: 2px solid #fff;
+  }
+
+  .level-grid {
+      display: grid;
+      grid-template-columns: repeat(10, 1fr);
+      /* 10列 */
+      grid-auto-rows: 50px;
+      gap: 10px;
+      overflow-y: auto;
+      flex-grow: 1;
+      padding-right: 10px;
+  }
+
+  /* 滚动条美化 */
+  .level-grid::-webkit-scrollbar {
+      width: 8px;
+  }
+
+  .level-grid::-webkit-scrollbar-track {
+      background: #222;
+  }
+
+  .level-grid::-webkit-scrollbar-thumb {
+      background: #555;
+  }
+
+  .lvl-card {
+      background: #333;
+      border: 1px solid #555;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      cursor: pointer;
+      position: relative;
+      transition: transform 0.1s;
+  }
+
+  .lvl-card:hover {
+      background: #555;
+      transform: translateY(-2px);
+      border-color: #888;
+  }
+
+  .lvl-card.cleared {
+      border-color: #0c0;
+      background: #131;
+  }
+
+  /* 通关绿 */
+
+/* 虚拟按键样式 */
+.virtual-controls {
+    margin-top: 20px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 0;
+    box-sizing: border-box;
+    z-index: 11;
+    pointer-events: auto;
+}
+
+.virtual-controls.hidden {
+    display: none !important;
+}
+
+.btn-dir {
+    width: 80px;
+    height: 80px;
+    background: rgba(0, 0, 0, 0.7);
+    border: 3px solid #666;
+    color: #fff;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-size: 40px;
+    cursor: pointer;
+    user-select: none;
+    transition: all 0.1s;
+    margin: 5px;
+    border-radius: 10px;
+}
+
+.btn-dir:active {
+    background: #fff;
+    color: #000;
+    border-color: #fff;
+    transform: scale(0.95);
+}
+
+/* 回退键(Z)样式 */
+.btn-undo {
+    width: 80px;
+    height: 80px;
+    background: rgba(0, 0, 0, 0.7);
+    border: 3px solid #666;
+    color: #fff;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-size: 40px;
+    font-weight: bold;
+    cursor: pointer;
+    user-select: none;
+    transition: all 0.1s;
+    margin: 5px;
+    border-radius: 10px;
+}
+
+.btn-undo:active {
+    background: #fff;
+    color: #000;
+    border-color: #fff;
+    transform: scale(0.95);
+}
+
+/* 方向键容器 */
+.btn-dir-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin-right: 20px;
+}
+
+.btn-dir-row {
+    display: flex;
+    align-items: center;
+}
+
+.btn-dir.up {
+    position: relative;
+    margin-bottom: 5px;
+    left: auto;
+    bottom: auto;
+}
+
+.btn-dir.down {
+    position: relative;
+    left: auto;
+    bottom: auto;
+}
+
+.btn-dir.left {
+    position: relative;
+    left: auto;
+    bottom: auto;
+    margin-right: 5px;
+}
+
+.btn-dir.right {
+    position: relative;
+    left: auto;
+    bottom: auto;
+    margin-left: 5px;
+}
+
+/* 回退键(Z)定位 */
+.btn-undo {
+    position: relative;
+    left: auto;
+    bottom: auto;
+    margin-right: 10px;
+}
+
+/* 退出键定位 */
+.btn-exit {
+    position: relative;
+    left: auto;
+    bottom: auto;
+    width: 120px;
+    height: 60px;
+    background: rgba(0, 0, 0, 0.7);
+    border: 3px solid #666;
+    color: #fff;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-size: 24px;
+    cursor: pointer;
+    user-select: none;
+    transition: all 0.1s;
+    border-radius: 10px;
+    margin-top: 10px;
+}
+
+.btn-exit:active {
+    background: #fff;
+    color: #000;
+    border-color: #fff;
+    transform: scale(0.95);
+}
+
+/* 响应式设计 - 小屏幕适配 */
+@media (max-width: 768px) {
+    #canvas-container {
+        width: 100vw;
+        height: 100vw;
+        max-height: 100vh;
+    }
+    
+    .btn-dir {
+        width: 12vw;
+        height: 12vw;
+        font-size: 6vw;
+        margin: 1vw;
+    }
+    
+    .btn-dir-container {
+        margin-right: 2vw;
+    }
+    
+    .btn-undo {
+        width: 12vw;
+        height: 12vw;
+        font-size: 6vw;
+        margin: 1vw;
+    }
+    
+    .btn-exit {
+        width: 20vw;
+        height: 10vw;
+        font-size: 4vw;
+        margin-top: 2vw;
+    }
+    
+    .virtual-controls {
+        bottom: 5vw;
+    }
+}
+  .lvl-card .lvl-num {
+      font-size: 18px;
+      font-weight: bold;
+  }
+
+  .lvl-card .best-step {
+      font-size: 10px;
+      color: #aaa;
+      margin-top: 2px;
+  }
+
+  /* 颜色标记 (变种关卡的小圆点) */
+  .color-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      position: absolute;
+      top: 4px;
+      right: 4px;
+  }
+
+  /* HUD */
+  #ui-hud {
+      pointer-events: none;
+      justify-content: flex-start;
+      align-items: flex-start;
+      background: transparent;
+      padding: 10px;
+  }
+
+  .hud-box {
+      background: rgba(0, 0, 0, 0.6);
+      padding: 5px 15px;
+      border-radius: 4px;
+      display: flex;
+      gap: 20px;
+      font-size: 16px;
+  }
+
+  /* 暂停菜单 */
+  #ui-pause {
+      background: rgba(0, 0, 0, 0.6);
+      backdrop-filter: blur(2px);
+  }
+
+  .modal-box {
+      background: #111;
+      border: 2px solid #666;
+      padding: 40px;
+      text-align: center;
+      min-width: 300px;
+  }
+
+  .modal-title {
+      font-size: 32px;
+      margin-bottom: 30px;
+      border-bottom: 1px solid #333;
+      padding-bottom: 10px;
+  }
+
+  /* 演示模式 UI */
+  #ui-replay-ctrl {
+      position: absolute;
+      bottom: 20px;
+      width: 100%;
+      pointer-events: auto;
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+  }
+
+  /* 回放控制条样式 */
+  .replay-controls {
+      position: absolute;
+      bottom: 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 5px;
+      pointer-events: auto;
+      /* 允许点击按钮 */
+      background: rgba(0, 0, 0, 0.8);
+      padding: 10px;
+      border: 1px solid #444;
+      border-radius: 8px;
+  }
+
+  .replay-status {
+      font-size: 12px;
+      color: #0f0;
+      letter-spacing: 2px;
+      font-weight: bold;
+      animation: blink 2s infinite;
+  }
+
+  .btn-group button {
+      padding: 5px 10px;
+      font-size: 12px;
+      min-width: 60px;
+      margin: 0 2px;
+  }
+
+  @keyframes blink {
+      0% {
+          opacity: 1;
+      }
+
+      50% {
+          opacity: 0.5;
+      }
+
+      100% {
+          opacity: 1;
+      }
+  }
+
+  /* 选关卡片上的播放按钮 */
+  .play-replay-btn {
+      position: absolute;
+      bottom: 2px;
+      right: 2px;
+      width: 20px;
+      height: 20px;
+      background: #222;
+      border: 1px solid #0f0;
+      color: #0f0;
+      font-size: 10px;
+      line-height: 18px;
+      text-align: center;
+      border-radius: 50%;
+      z-index: 5;
+  }
+
+  .play-replay-btn:hover {
+      background: #0f0;
+      color: #000;
+      transform: scale(1.2);
+  }
+  .selected {
+    border: 2px solid yellow !important;
+    background-color: #444;
+    transform: scale(1.1);
+}
+/* 制作名单页面 */
+#ui-credits {
+    background-image: url('../assets/titlekurai.png'); /* 复用标题壁纸 */
+    background-size: cover;
+    background-position: right center;
+    background-color: #000;
+    
+    /* 强制内容左下角对齐 */
+    justify-content: flex-end; /* 垂直底部 */
+    align-items: flex-start;   /* 水平左侧 */
+}
+
+.credits-box {
+    margin: 40px; /* 距离左下角的边距 */
+    text-align: left;
+    background: rgba(0, 0, 0, 0.6); /* 半透明黑底，防止文字看不清 */
+    padding: 20px;
+    border-radius: 8px;
+    border: 1px solid #444;
+}
+
+.credits-box p {
+    margin: 8px 0;
+    font-size: 16px;
+    line-height: 1.5;
+    color: #fff;
+}
+
+.credits-box .role {
+    color: #aaa;
+    margin-right: 10px;
+    font-size: 14px;
+}
+
+.credits-box .name {
+    font-weight: bold;
+    color: #fff;
+}
+
+.small-btn {
+    margin-top: 20px;
+    padding: 5px 20px;
+    font-size: 16px;
+    display: inline-block;
+}
+
+#ui-handbook {
+   background: transparent; /* 去掉全屏遮罩感 */
+    pointer-events: auto;    /* 响应点击 */
+    cursor: pointer;
+}
+.handbook-box {
+    position: absolute;
+    bottom: 10px;
+    width: 200px;
+    left: 12px;
+    background: rgba(0,0,0,0.8);
+    border: 1px solid #555;
+    padding: 8px;
+    color: #eee;
+    pointer-events: auto;
+
+}
+#hb-name { color: #0cf; margin: 0 0 5px 0; font-size: 14px; }
+#hb-desc { font-size: 11px; margin: 0; line-height: 1.4; color: #ccc; }

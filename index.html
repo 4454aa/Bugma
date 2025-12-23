@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Bug与魔法使</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link id="page-favicon" rel="icon" type="image/png" href="assets/shirley.png" sizes="16x16">
+    <meta name="msapplication-TileImage" content="assets/shirley.png">
+    <meta name="msapplication-TileColor" content="#ffffff">
+    <meta name="theme-color" content="#ffffff">
+</head>
+
+<body>
+    <div id="game-wrapper">
+        <div id="canvas-container">
+            <canvas id="gameCanvas" width="224" height="224"></canvas>
+
+            <!-- 1. 标题 -->
+            <div id="ui-title" class="ui-layer">
+                <div class="logo-area">
+                    <div class="logo-main"><span class="bug-text">BUG</span><span class="smaller">与</span><span class="medium">魔法使</span></div>
+                    <div class="logo-sub">HTML5 REMAKE</div>
+                </div>
+                <div class="menu-btn" onclick="ui.goToLevelSelect()">START GAME</div>
+                <div class="menu-btn" onclick="ui.loadRandomLevel()">RANDOM LEVEL</div>
+                <div class="menu-btn" onclick="ui.goToHandbook()">HANDBOOK</div> <!-- 新增 -->
+                <div class="menu-btn" onclick="ui.openIOMenu()">DATA IO</div>
+                <div class="menu-btn" onclick="ui.goToCredits()">CREDITS</div>
+            </div>
+
+            <!-- 2. 选关 -->
+            <div id="ui-select" class="ui-layer hidden">
+                <div class="select-header">
+                    <div class="pack-tabs">
+                        <button class="tab-btn active">OFFICIAL</button>
+                        <button class="tab-btn">CUSTOM</button>
+                        <button class="tab-btn">RANDOM</button>
+                    </div>
+                    <button class="menu-btn" style="min-width:auto; padding:5px 15px;"
+                        onclick="ui.goToTitle()">BACK</button>
+                </div>
+                <div id="level-grid" class="level-grid">
+                    <!-- JS 生成 -->
+                </div>
+                <div style="margin-top: 10px; font-size: 12px; color: #666;">
+                    Page: <span id="page-indicator">1/1</span>
+                </div>
+            </div>
+            <!-- 5. 存档 IO 弹窗 -->
+            <div id="ui-io" class="ui-layer hidden">
+                <div class="modal-box" style="width: 400px;">
+                    <div class="modal-title">DATA I/O</div>
+
+                    <p style="color:#aaa; font-size:14px; margin-bottom:20px;">
+                        存档格式: JSON 文件<br>包含通关记录与录像数据
+                    </p>
+
+                    <!-- 导出按钮 -->
+                    <div class="menu-btn" onclick="saveSystem.exportToFile()">
+                        EXPORT (Download)
+                    </div>
+
+                    <!-- 导入区域 -->
+                    <div style="margin: 20px 0; border-top: 1px solid #444; padding-top: 20px;">
+                        <p>导入存档:</p>
+                        <!-- 隐藏的 file input -->
+                        <input type="file" id="import-file" accept=".json" style="display:none"
+                            onchange="saveSystem.importFromFile(this)">
+
+                        <!-- 触发按钮 -->
+                        <div class="menu-btn" onclick="document.getElementById('import-file').click()">
+                            IMPORT (Select File)
+                        </div>
+                    </div>
+
+                    <div class="menu-btn" onclick="ui.goToTitle()">
+                        BACK
+                    </div>
+                </div>
+            </div>
+            <!-- 3. 游戏内 HUD -->
+            <div id="ui-hud" class="ui-layer hidden">
+                <div class="hud-box">
+                    <span>LEVEL: <b id="hud-lvl">--</b></span>
+                    <span>STEPS: <b id="hud-steps">0</b></span>
+                    <span id="hud-replay-indicator" style="color:#f00; display:none;">● REPLAY</span>
+                </div>
+            </div>
+
+            <!-- 5. 回放控制条 (默认隐藏) -->
+            <div id="ui-replay-bar" class="ui-layer hidden" style="background: transparent; pointer-events: none;">
+                <div class="replay-controls">
+                    <div class="replay-status">REPLAY MODE</div>
+                    <div class="btn-group">
+                        <button onclick="window.stepBackReplay()">← Prev</button>
+                        <button onclick="window.toggleReplayPause()" id="btn-replay-pause">Pause</button>
+                        <button onclick="window.stepReplay()">Next →</button>
+                        <button onclick="window.exitReplay()" style="border-color: #f44; color:#f44;">EXIT</button>
+                    </div>
+                </div>
+            </div>
+            <!-- 在 ui-credits 之后添加 -->
+            <!-- 修改 index.html 中的图鉴部分 -->
+            <div id="ui-handbook" class="ui-layer hidden" onclick="ui.handleHandbookClick(event)">
+                <!-- 将 canvas 点击事件透传或在此处处理 -->
+                <div class="handbook-box">
+                    <div id="hb-content">
+                        <h3 id="hb-name">名称</h3>
+                        <p id="hb-desc">描述文字加载中...</p>
+                    </div>
+                    <!-- 这里的按钮点击会触发 goToTitle，从而执行 hideAll -->
+                    <div class="menu-btn small-btn" style="margin-top:10px; min-width:80px;" onclick="ui.goToTitle()">
+                        BACK</div>
+                </div>
+            </div>
+            <!-- 6. 制作名单 (新增) -->
+            <div id="ui-credits" class="ui-layer hidden">
+                <!-- 内容容器：绝对定位到左下角 -->
+                <div class="credits-box">
+                    <p><span class="role">程序/音乐/剧本等</span> <span class="name">フシギ</span></p>
+                    <p><span class="role">插画/角色设计</span> <span class="name">幼井osanai</span></p>
+                    <p><span class="role">像素画/LOGO设计</span> <span class="name">すしざめ</span></p>
+                    <p><span class="role">音效素材</span> <span class="name">OtoLogic / On-Jin ～音人～</span></p>
+                    <p><span class="role">怪物图像素材</span> <span class="name">HI-TIME</span></p>
+                    <p><span class="role">HTML移植</span> <span class="name">4454</span></p>
+
+                    <div class="menu-btn small-btn" onclick="ui.goToTitle()">BACK</div>
+                </div>
+            </div>
+            <!-- 4. 暂停菜单 -->
+            <div id="ui-pause" class="ui-layer hidden">
+                <div class="modal-box">
+                    <div class="modal-title">PAUSE</div>
+                    <div class="menu-btn" onclick="ui.resumeGame()">RESUME</div>
+                    <div class="menu-btn" onclick="window.resetCurrentLevel(); ui.resumeGame()">RETRY (R)</div>
+                    <div class="menu-btn"
+                        onclick="gameState.restoreSnapshot(); visualLogic.updateAutoTiling(); ui.resumeGame()">UNDO (Z)
+                    </div>
+                    <div class="menu-btn" onclick="ui.goToLevelSelect(ui.currentLevelType)">EXIT</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 虚拟按键容器 -->
+        <div id="virtual-controls" class="virtual-controls hidden">
+            <!-- 方向键容器 -->
+            <div class="btn-dir-container">
+                <div class="btn-dir up" data-key="ArrowUp">↑</div>
+                <div class="btn-dir-row">
+                    <div class="btn-dir left" data-key="ArrowLeft">←</div>
+                    <div class="btn-dir down" data-key="ArrowDown">↓</div>
+                    <div class="btn-dir right" data-key="ArrowRight">→</div>
+                </div>
+            </div>
+            <!-- 功能键容器 -->
+            <div style="display: flex; flex-direction: column; justify-content: center; align-items: center;">
+                <div class="btn-undo" data-key="z">Z</div>
+                <div class="btn-exit" data-key="Escape">EXIT</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 脚本加载顺序很重要 -->
+    <script src="js/Constants.js"></script>
+    <script src="js/levels.js"></script>
+    <script src="js/custom_levels.js"></script>
+    <script src="js/generated_levels.js"></script>
+
+    <!-- 数据与基础设施 -->
+    <script src="js/GameState.js"></script>
+    <script src="js/SaveSystem.js"></script> <!-- 【放这里】 -->
+
+    <!-- 游戏逻辑 -->
+    <script src="js/VisualLogic.js"></script>
+    <script src="js/BattleLogic.js"></script>
+    <script src="js/MovementLogic.js"></script>
+    <script src="js/LevelLoader.js"></script>
+
+    <!-- 渲染与主程序 -->
+    <script src="js/RenderConfig.js"></script>
+    <script src="js/Render.js"></script>
+    <script src="js/UIManager.js"></script>
+    <script src="js/Game.js"></script>
+</body>
+
+</html>
