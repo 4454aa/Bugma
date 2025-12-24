@@ -40,11 +40,12 @@ class MovementLogic {
             dousahoukou = 3; 
         }
 
-        this.state.player.dir = newDir;
-
-        // 2. 保存快照 & 准备
+        // 2. 保存快照 & 准备 (在更新方向之前保存，确保回溯能恢复到移动前的完整状态)
         this.state.saveSnapshot();
         this.state.syncMainToBuffer();
+
+        // 更新方向
+        this.state.player.dir = newDir;
 
         // 3. 【变色逻辑】(Pre-Move Transformation)
         // 触发条件：粉发(Form 2) 且 发生了转身
