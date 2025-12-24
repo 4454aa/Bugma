@@ -11732,7 +11732,7 @@ const ALL_LEVELS = {
   },
   "50": {
     "color": 6,
-    "mode": 2,
+    "mode": 1,
     "map": [
       "||",
       "||",
