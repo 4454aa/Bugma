@@ -110,7 +110,7 @@ function updateFavicon(form) {
     // 根据形态设置不同的图标
     // 形态1：银发（艾拉），使用ella.png
     // 形态2：粉发（雪莉），使用shirley.png
-    favicon.href = form === 1 ? 'assets/ella.png' : 'assets/shirley.png';
+    favicon.href = form === 1 ? 'assets/shirley.png' : 'assets/ella.png';
     favicon.sizes = '16x16';
 }
 
