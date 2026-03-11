@@ -14,12 +14,17 @@
 
 > 说明：这仍是移植中的求解器实现，和前端 JS 还有细节差异，但已不再是“碰怪即删除”的简化模型。
 
-## 构建
+## 构建（推荐直接 g++，不依赖 CMake）
 
 ```bash
-cmake -S cpp -B cpp/build
-cmake --build cpp/build -j
+mkdir -p cpp/build
+
+g++ -std=c++17 -O2 -o cpp/build/bugma_solver cpp/src/main.cpp
+
+g++ -std=c++17 -O2 -o cpp/build/make_replay_save cpp/tools/make_replay_save.cpp
 ```
+
+> 当然你也可以继续用 CMake；但这个项目体量下，直接 `g++` 足够。
 
 ## 使用
 
@@ -77,4 +82,14 @@ cmake --build cpp/build -j
 - `--steps`：手动指定 bestSteps（默认等于 replay 长度）
 - `--color`：官方变色关颜色覆盖（会生成 `<levelId>_c<color>` key）
 - `--output`：输出文件名
+
+### 写入行为（你要求的逻辑）
+
+`make_replay_save` 的输出策略：
+
+- 如果 `--output` 文件不存在：**创建新 JSON**。
+- 如果文件已存在：**先读取旧文件里的 `content.levels`，再按 key 合并写回**。
+  - key 不存在：新增该关 replay。
+  - key 已存在：按和前端一致的思路，保留更优步数（更小 `bestSteps`）或补齐空 replay。
+
 
