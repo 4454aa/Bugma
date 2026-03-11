@@ -1,9 +1,13 @@
 #include <array>
 #include <fstream>
 #include <iostream>
+#include <chrono>
 #include <optional>
 #include <queue>
 #include <regex>
+#include <set>
+#include <sstream>
+#include <stdexcept>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -919,8 +923,14 @@ std::string encode(const State& s) {
     return key;
 }
 
-std::optional<std::string> bfsSolve(const State& start, int maxNodes) {
-    if (isSolved(start)) return std::string();
+struct SolveResult {
+    bool solved = false;
+    std::string path;
+    int expanded = 0;
+};
+
+SolveResult bfsSolve(const State& start, int maxNodes) {
+    if (isSolved(start)) return {true, "", 0};
 
     struct Node { State s; std::string path; };
     std::queue<Node> q;
@@ -942,40 +952,387 @@ std::optional<std::string> bfsSolve(const State& start, int maxNodes) {
             auto k = encode(nxt);
             if (vis.count(k)) continue;
             std::string np = cur.path + mv;
-            if (isSolved(nxt)) return np;
+            if (isSolved(nxt)) return {true, np, expanded};
             vis.insert(std::move(k));
             q.push({std::move(nxt), std::move(np)});
         }
     }
-    return std::nullopt;
+    return {false, "", expanded};
 }
 
 } // namespace bugma
 
+struct ReplayRecord {
+    bool cleared = true;
+    int bestSteps = 0;
+    std::string replay;
+};
+
+struct OfficialEntry {
+    int label = 0;               // UI label 1..101
+    std::string id;              // base id in ALL_LEVELS
+    int colorOverride = 0;       // 0 means no override
+    std::string saveKey;         // id or id_cX
+};
+
+static std::string levelKey(const std::string& id, int colorOverride) {
+    return colorOverride > 0 ? id + "_c" + std::to_string(colorOverride) : id;
+}
+
+static std::vector<OfficialEntry> buildOfficialManifest() {
+    std::vector<OfficialEntry> out;
+    for (int i = 1; i <= 52; ++i) {
+        OfficialEntry e;
+        e.label = i;
+        e.id = std::to_string(i);
+        e.colorOverride = 0;
+        e.saveKey = e.id;
+        out.push_back(std::move(e));
+    }
+
+    OfficialEntry egg;
+    egg.label = 53;
+    egg.id = "53";
+    egg.saveKey = "53";
+    out.push_back(std::move(egg));
+
+    const std::array<int, 7> baseIds{{61, 62, 63, 64, 65, 66, 67}};
+    const std::array<int, 5> colors{{1, 2, 3, 4, 6}};
+    int label = 54;
+    for (int c : colors) {
+        for (int bid : baseIds) {
+            OfficialEntry e;
+            e.label = label++;
+            e.id = std::to_string(bid);
+            e.colorOverride = c;
+            e.saveKey = levelKey(e.id, c);
+            out.push_back(std::move(e));
+        }
+    }
+
+    for (int i = 81; i <= 93; ++i) {
+        OfficialEntry e;
+        e.label = label++;
+        e.id = std::to_string(i);
+        e.saveKey = e.id;
+        out.push_back(std::move(e));
+    }
+
+    return out;
+}
+
+static std::vector<int> parseNumericSelector(const std::string& input) {
+    std::vector<int> out;
+    if (input.empty() || input == "all" || input == "ALL") return out;
+
+    std::stringstream ss(input);
+    std::string token;
+    while (std::getline(ss, token, ',')) {
+        if (token.empty()) continue;
+        auto dash = token.find('-');
+        if (dash == std::string::npos) {
+            out.push_back(std::stoi(token));
+        } else {
+            int l = std::stoi(token.substr(0, dash));
+            int r = std::stoi(token.substr(dash + 1));
+            if (l > r) std::swap(l, r);
+            for (int x = l; x <= r; ++x) out.push_back(x);
+        }
+    }
+    return out;
+}
+
+static std::string mergeIntervals(const std::vector<int>& nums) {
+    if (nums.empty()) return "(none)";
+    std::vector<int> a = nums;
+    std::sort(a.begin(), a.end());
+    a.erase(std::unique(a.begin(), a.end()), a.end());
+
+    std::ostringstream os;
+    int st = a[0], ed = a[0];
+    bool first = true;
+    for (size_t i = 1; i < a.size(); ++i) {
+        if (a[i] == ed + 1) {
+            ed = a[i];
+        } else {
+            if (!first) os << ",";
+            if (st == ed) os << st;
+            else os << st << "-" << ed;
+            first = false;
+            st = ed = a[i];
+        }
+    }
+    if (!first) os << ",";
+    if (st == ed) os << st;
+    else os << st << "-" << ed;
+    return os.str();
+}
+
+static std::map<std::string, ReplayRecord> parseExistingSave(const std::string& text) {
+    std::map<std::string, ReplayRecord> out;
+    if (text.empty()) return out;
+
+    std::regex entryRe(R"rx("([^"]+)"\s*:\s*\{([\s\S]*?)\})rx");
+    std::regex replayRe(R"rx("replay"\s*:\s*"([UDLRudlr]*)")rx");
+    std::regex stepsRe(R"rx("bestSteps"\s*:\s*([0-9]+))rx");
+    std::regex clearedRe(R"rx("cleared"\s*:\s*(true|false))rx");
+
+    for (auto it = std::sregex_iterator(text.begin(), text.end(), entryRe); it != std::sregex_iterator(); ++it) {
+        ReplayRecord rec;
+        rec.bestSteps = 0;
+        rec.cleared = true;
+        std::string key = (*it)[1].str();
+        std::string obj = (*it)[2].str();
+
+        std::smatch m;
+        if (std::regex_search(obj, m, replayRe)) rec.replay = m[1].str();
+        if (std::regex_search(obj, m, stepsRe)) rec.bestSteps = std::stoi(m[1].str());
+        if (std::regex_search(obj, m, clearedRe)) rec.cleared = (m[1].str() == "true");
+
+        if (!rec.replay.empty()) {
+            std::transform(rec.replay.begin(), rec.replay.end(), rec.replay.begin(), [](unsigned char c) {
+                return static_cast<char>(std::toupper(c));
+            });
+        }
+        out[key] = rec;
+    }
+    return out;
+}
+
+static void writeSolverSaveJson(const std::string& path, const std::map<std::string, ReplayRecord>& recs) {
+    std::ofstream ofs(path, std::ios::binary);
+    const auto now = std::chrono::time_point_cast<std::chrono::milliseconds>(
+                         std::chrono::system_clock::now())
+                         .time_since_epoch()
+                         .count();
+
+    ofs << "{\n"
+        << "  \"version\": 1,\n"
+        << "  \"timestamp\": " << now << ",\n"
+        << "  \"game\": \"BanmenHTML5\",\n"
+        << "  \"content\": {\n"
+        << "    \"levels\": {\n";
+
+    bool first = true;
+    for (const auto& kv : recs) {
+        if (!first) ofs << ",\n";
+        first = false;
+        ofs << "      \"" << kv.first << "\": {\n"
+            << "        \"cleared\": " << (kv.second.cleared ? "true" : "false") << ",\n"
+            << "        \"bestSteps\": " << kv.second.bestSteps << ",\n"
+            << "        \"replay\": \"" << kv.second.replay << "\"\n"
+            << "      }";
+    }
+    ofs << "\n    }\n  }\n}\n";
+}
+
+static void writeSolverSaveJs(const std::string& path, const std::map<std::string, ReplayRecord>& recs) {
+    std::ofstream ofs(path, std::ios::binary);
+    ofs << "// Auto-generated by cpp/build/bugma_solver interactive mode\n"
+        << "const SOLVER_SAVE = {\n"
+        << "  \"version\": 1,\n"
+        << "  \"game\": \"BanmenHTML5\",\n"
+        << "  \"content\": {\n"
+        << "    \"levels\": {\n";
+    bool first = true;
+    for (const auto& kv : recs) {
+        if (!first) ofs << ",\n";
+        first = false;
+        ofs << "      \"" << kv.first << "\": {\"cleared\": " << (kv.second.cleared ? "true" : "false")
+            << ", \"bestSteps\": " << kv.second.bestSteps
+            << ", \"replay\": \"" << kv.second.replay << "\"}";
+    }
+    ofs << "\n    }\n  }\n};\n";
+}
+
+static std::unordered_map<std::string, bugma::Level> loadAllLevels() {
+    auto textOpt = bugma::readFile("js/generated_levels.js");
+    if (!textOpt) {
+        throw std::runtime_error("Cannot read js/generated_levels.js");
+    }
+    auto levels = bugma::parseLevels(*textOpt);
+
+    if (auto extraOpt = bugma::readFile("js/levels.js"); extraOpt) {
+        auto extra = bugma::parseLevels(*extraOpt);
+        for (auto& kv : extra) levels[kv.first] = std::move(kv.second);
+    }
+    if (auto customOpt = bugma::readFile("js/custom_levels.js"); customOpt) {
+        auto custom = bugma::parseLevels(*customOpt);
+        for (auto& kv : custom) levels[kv.first] = std::move(kv.second);
+    }
+    return levels;
+}
+
+static void printAlgorithmIntro() {
+    std::cout
+        << "\n[Algorithm] Solver uses BFS over full game state.\n"
+        << "- State includes grid, form, direction, color theme, invincible flag, status.\n"
+        << "- Each node expands 4 actions (U/D/L/R) via full turn-resolution mechanics.\n"
+        << "- BFS guarantees shortest-step solution under current rules when found.\n"
+        << "- maxNodes controls search budget (expanded nodes cap).\n\n";
+}
+
+static int runInteractive() {
+    auto levels = loadAllLevels();
+    auto official = buildOfficialManifest();
+
+    std::vector<int> randomIds;
+    for (const auto& kv : levels) {
+        if (std::regex_match(kv.first, std::regex(R"(^\d+$)"))) {
+            int n = std::stoi(kv.first);
+            if (n >= 0 && n < 1000) randomIds.push_back(n);
+        }
+    }
+    std::sort(randomIds.begin(), randomIds.end());
+    randomIds.erase(std::unique(randomIds.begin(), randomIds.end()), randomIds.end());
+
+    std::vector<std::string> customIds;
+    for (const auto& kv : levels) {
+        if (std::regex_match(kv.first, std::regex(R"(^\d+-\d+$)"))) customIds.push_back(kv.first);
+    }
+    std::sort(customIds.begin(), customIds.end());
+
+    std::cout << "Loaded levels: official(UI)=" << official.size()
+              << ", random(base-ids<1000)=" << randomIds.size()
+              << ", custom=" << customIds.size() << "\n";
+    printAlgorithmIntro();
+
+    std::string savePath = "cpp/banmen_save_import.json";
+    auto records = parseExistingSave(bugma::readFile(savePath).value_or(""));
+
+    std::vector<int> unresolvedOfficial;
+    for (const auto& e : official) {
+        auto it = records.find(e.saveKey);
+        if (it == records.end() || it->second.replay.empty()) unresolvedOfficial.push_back(e.label);
+    }
+
+    std::vector<int> unresolvedRandom;
+    for (int rid : randomIds) {
+        std::string key = "gen_" + std::to_string(rid);
+        auto it = records.find(key);
+        if (it == records.end() || it->second.replay.empty()) unresolvedRandom.push_back(rid);
+    }
+
+    int unresolvedCustom = 0;
+    for (const auto& cid : customIds) {
+        std::string key = "custom_" + cid;
+        auto it = records.find(key);
+        if (it == records.end() || it->second.replay.empty()) unresolvedCustom++;
+    }
+
+    std::cout << "Unsolved from existing save:\n";
+    std::cout << "- official(labels): " << mergeIntervals(unresolvedOfficial) << "\n";
+    std::cout << "- random(gen ids) : " << mergeIntervals(unresolvedRandom) << "\n";
+    std::cout << "- custom(count)   : " << unresolvedCustom << "/" << customIds.size() << "\n";
+
+    while (true) {
+        std::cout << "\nMode: 1=official 2=random 3=custom 0=exit > ";
+        int mode = 0;
+        if (!(std::cin >> mode)) return 0;
+        if (mode == 0) break;
+
+        int maxNodes = 120000;
+        std::cout << "maxNodes (default 120000) > ";
+        std::cin >> maxNodes;
+
+        std::string selector;
+        std::cout << "range/list (e.g. 11-22 or 1,3,5; all=ALL) > ";
+        std::cin >> selector;
+
+        struct Task { std::string id; int color = 0; int label = 0; std::string saveKey; };
+        std::vector<Task> tasks;
+
+        if (mode == 1) {
+            auto labels = parseNumericSelector(selector);
+            std::set<int> labelSet(labels.begin(), labels.end());
+            for (const auto& e : official) {
+                if (!labelSet.empty() && !labelSet.count(e.label)) continue;
+                tasks.push_back({e.id, e.colorOverride, e.label, e.saveKey});
+            }
+        } else if (mode == 2) {
+            auto ids = parseNumericSelector(selector);
+            std::set<int> idSet(ids.begin(), ids.end());
+            for (int x : randomIds) {
+                if (!idSet.empty() && !idSet.count(x)) continue;
+                std::string sid = std::to_string(x);
+                tasks.push_back({sid, 0, x, "gen_" + sid});
+            }
+        } else if (mode == 3) {
+            if (selector == "ALL" || selector == "all") {
+                for (const auto& cid : customIds) tasks.push_back({cid, 0, 0, "custom_" + cid});
+            } else {
+                std::stringstream ss(selector);
+                std::string t;
+                while (std::getline(ss, t, ',')) {
+                    if (levels.count(t)) tasks.push_back({t, 0, 0, "custom_" + t});
+                }
+            }
+        } else {
+            std::cout << "Invalid mode\n";
+            continue;
+        }
+
+        std::cout << "Selected " << tasks.size() << " levels\n";
+        int solvedNow = 0;
+        for (size_t i = 0; i < tasks.size(); ++i) {
+            const auto& t = tasks[i];
+            auto it = levels.find(t.id);
+            if (it == levels.end()) {
+                std::cout << "[" << (i + 1) << "/" << tasks.size() << "] skip missing " << t.id << "\n";
+                continue;
+            }
+
+            bugma::State st = bugma::loadState(it->second);
+            if (t.color > 0) st.colorTheme = t.color;
+
+            auto t0 = std::chrono::steady_clock::now();
+            auto res = bugma::bfsSolve(st, maxNodes);
+            auto t1 = std::chrono::steady_clock::now();
+            long long ms = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
+
+            std::cout << "[" << (i + 1) << "/" << tasks.size() << "] "
+                      << t.id << (t.color > 0 ? ("_c" + std::to_string(t.color)) : "")
+                      << " nodes=" << res.expanded << " time=" << ms << "ms ";
+
+            if (res.solved) {
+                std::cout << "SOLVED steps=" << res.path.size() << "\n";
+                solvedNow++;
+                ReplayRecord rec;
+                rec.cleared = true;
+                rec.bestSteps = static_cast<int>(res.path.size());
+                rec.replay = res.path;
+
+                auto rit = records.find(t.saveKey);
+                if (rit == records.end() || rit->second.bestSteps <= 0 || rec.bestSteps < rit->second.bestSteps || rit->second.replay.empty()) {
+                    records[t.saveKey] = rec;
+                }
+            } else {
+                std::cout << "UNSOLVED\n";
+            }
+        }
+
+        writeSolverSaveJson("cpp/banmen_save_import.json", records);
+        writeSolverSaveJs("cpp/banmen_save_import.js", records);
+        std::cout << "Round done. solved=" << solvedNow << "/" << tasks.size()
+                  << ", saved to cpp/banmen_save_import.json and cpp/banmen_save_import.js\n";
+    }
+
+    return 0;
+}
+
 int main(int argc, char** argv) {
+    if (argc >= 2) {
+        std::string a1 = argv[1];
+        if (a1 == "--interactive" || a1 == "-i") {
+            return runInteractive();
+        }
+    }
+
     std::string levelId = argc >= 2 ? argv[1] : "0";
     int maxNodes = argc >= 3 ? std::stoi(argv[2]) : 120000;
     int colorOverride = argc >= 4 ? std::stoi(argv[3]) : 0;
 
-    auto textOpt = bugma::readFile("js/generated_levels.js");
-    if (!textOpt) {
-        std::cerr << "Cannot read js/generated_levels.js\n";
-        return 1;
-    }
-
-    auto levels = bugma::parseLevels(*textOpt);
-
-    auto extraOpt = bugma::readFile("js/levels.js");
-    if (extraOpt) {
-        auto extra = bugma::parseLevels(*extraOpt);
-        for (auto& kv : extra) levels[kv.first] = std::move(kv.second);
-    }
-
-    auto customOpt = bugma::readFile("js/custom_levels.js");
-    if (customOpt) {
-        auto custom = bugma::parseLevels(*customOpt);
-        for (auto& kv : custom) levels[kv.first] = std::move(kv.second);
-    }
+    auto levels = loadAllLevels();
     auto it = levels.find(levelId);
     if (it == levels.end()) {
         std::cerr << "Level not found: " << levelId << "\n";
@@ -984,14 +1341,14 @@ int main(int argc, char** argv) {
 
     bugma::State start = bugma::loadState(it->second);
     if (colorOverride > 0) start.colorTheme = colorOverride;
-    auto answer = bugma::bfsSolve(start, maxNodes);
+    auto res = bugma::bfsSolve(start, maxNodes);
 
     int realColor = colorOverride > 0 ? colorOverride : it->second.color;
     std::cout << "Level " << levelId << ", mode=" << it->second.mode << ", color=" << realColor << "\n";
-    if (!answer.has_value()) {
-        std::cout << "No solution found under current model (node limit: " << maxNodes << ")\n";
+    if (!res.solved) {
+        std::cout << "No solution found under current model (node limit: " << maxNodes << ", expanded: " << res.expanded << ")\n";
         return 0;
     }
-    std::cout << "Solution(" << answer->size() << " steps): " << *answer << "\n";
+    std::cout << "Solution(" << res.path.size() << " steps, expanded: " << res.expanded << "): " << res.path << "\n";
     return 0;
 }

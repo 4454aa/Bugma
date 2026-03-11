@@ -67,6 +67,29 @@ g++ -std=c++17 -O2 -o cpp/build/make_replay_save cpp/tools/make_replay_save.cpp
 ./cpp/build/bugma_solver 1-1 12000
 ```
 
+### 求解算法原理（当前实现）
+
+- 使用 **BFS（广度优先搜索）** 在完整游戏状态空间里找解。
+- 一个状态节点包含：前景网格、角色形态、朝向、主题色、无敌状态、胜负状态等。
+- 每个节点扩展 4 个动作（`U/D/L/R`），并执行完整回合结算（移动、战斗、地板触发、胜负检查）。
+- 因为是 BFS，若在给定规则和节点上限内找到解，通常是“步数最短解”。
+- `maxNodes` 是搜索预算上限。
+
+### 交互式求解模式
+
+```bash
+./cpp/build/bugma_solver --interactive
+```
+
+交互项支持：
+
+- 输入模式：`1=official / 2=random / 3=custom`
+- 输入节点上限（`maxNodes`）
+- 输入关卡范围：支持 `11`、`11-22`、`1,3,5-8`、`ALL`
+- 逐关打印：是否解出、步数、扩展节点数、耗时
+
+交互模式会启动时显示三个模式各自关卡数量，并读取现有 `cpp/banmen_save_import.json`，打印未解关卡（官方与随机会尽量合并区间，custom打印总未解数）。
+
 ### 回放 JSON 生成（可导入网页）
 
 ```bash
@@ -87,6 +110,12 @@ g++ -std=c++17 -O2 -o cpp/build/make_replay_save cpp/tools/make_replay_save.cpp
   - key 已存在：保留更优步数（更小 `bestSteps`）或补齐空 replay。
 
 #### 导入网页测试
+
+交互式求解后会自动输出两个文件到 `cpp/`：
+
+- `banmen_save_import.json`（直接 IMPORT）
+- `banmen_save_import.js`（同结构的 JS 常量形式）
+
 
 1. 打开网页中的 `DATA I/O`
 2. 点击 `IMPORT`
