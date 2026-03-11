@@ -100,7 +100,7 @@ g++ -std=c++17 -O2 -o cpp/build/make_replay_save cpp/tools/make_replay_save.cpp
 - 输入模式：`1=official / 2=random / 3=custom`
 - 输入节点上限（`maxNodes`）
 - 输入算法（`bfs/astar/beam/mha/ara`，beam 可额外输入 `beamWidth`）
-- 输入关卡范围：支持 `11`、`11-22`、`1,3,5-8`、`ALL`
+- 输入关卡范围：支持 `11`、`11-22`、`1,3,5-8`、`ALL`、`UNSOLVED`（仅跑未解）
 - 逐关打印：算法名、是否解出、步数、扩展节点数、耗时
 
 交互模式会启动时显示三个模式各自关卡数量，并读取现有 `cpp/banmen_save_import.json`，打印未解关卡（官方与随机会尽量合并区间，custom打印总未解数）。
@@ -110,6 +110,14 @@ g++ -std=c++17 -O2 -o cpp/build/make_replay_save cpp/tools/make_replay_save.cpp
 - official：与前端一致，`1-52` 会按关卡配置自动使用 `id_c<color>`（例如 `1_c1`）；`61-67` 变色组使用 `61_c1` 这类 key。
 - random：仅使用 `js/generated_levels.js` 作为数据源，并写入 `gen_<id>` key。
 - custom：使用 `js/custom_levels.js`，并写入 `custom_<id>` key。
+
+交互求解写入的每条记录会附带 `solverMeta` 元信息，包括：
+
+- `solverAlgorithm`：使用的算法名
+- `expanded`：扩展节点数
+- `elapsedMs`：单关耗时（毫秒）
+- `updatedAt`：写入时间戳（毫秒）
+- `source`：写入来源（如 `bugma_solver` / `make_replay_save`）
 
 ### 回放 JSON 生成（可导入网页）
 

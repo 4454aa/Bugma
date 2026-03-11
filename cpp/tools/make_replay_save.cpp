@@ -10,6 +10,11 @@ struct LevelRecord {
     bool cleared = true;
     int bestSteps = 0;
     std::string replay;
+    std::string solverAlgorithm = "manual";
+    int expanded = 0;
+    long long elapsedMs = 0;
+    long long updatedAt = 0;
+    std::string source = "make_replay_save";
 };
 
 static void usage() {
@@ -68,6 +73,11 @@ static std::map<std::string, LevelRecord> parseExistingLevels(const std::string&
     std::regex replayRe(R"rx("replay"\s*:\s*"([UDLRudlr]*)")rx");
     std::regex stepsRe(R"rx("bestSteps"\s*:\s*([0-9]+))rx");
     std::regex clearedRe(R"rx("cleared"\s*:\s*(true|false))rx");
+    std::regex algoRe(R"rx("solverAlgorithm"\s*:\s*"([^"]*)")rx");
+    std::regex expandedRe(R"rx("expanded"\s*:\s*([0-9]+))rx");
+    std::regex elapsedRe(R"rx("elapsedMs"\s*:\s*([0-9]+))rx");
+    std::regex updatedRe(R"rx("updatedAt"\s*:\s*([0-9]+))rx");
+    std::regex sourceRe(R"rx("source"\s*:\s*"([^"]*)")rx");
 
     for (auto it = std::sregex_iterator(body.begin(), body.end(), entryRe); it != std::sregex_iterator(); ++it) {
         LevelRecord rec;
@@ -78,6 +88,11 @@ static std::map<std::string, LevelRecord> parseExistingLevels(const std::string&
         if (std::regex_search(entry, m, replayRe)) rec.replay = m[1].str();
         if (std::regex_search(entry, m, stepsRe)) rec.bestSteps = std::stoi(m[1].str());
         if (std::regex_search(entry, m, clearedRe)) rec.cleared = (m[1].str() == "true");
+        if (std::regex_search(entry, m, algoRe)) rec.solverAlgorithm = m[1].str();
+        if (std::regex_search(entry, m, expandedRe)) rec.expanded = std::stoi(m[1].str());
+        if (std::regex_search(entry, m, elapsedRe)) rec.elapsedMs = std::stoll(m[1].str());
+        if (std::regex_search(entry, m, updatedRe)) rec.updatedAt = std::stoll(m[1].str());
+        if (std::regex_search(entry, m, sourceRe)) rec.source = m[1].str();
 
         if (!rec.replay.empty()) {
             std::transform(rec.replay.begin(), rec.replay.end(), rec.replay.begin(), [](unsigned char c) {
@@ -141,23 +156,31 @@ int main(int argc, char** argv) {
 
     const std::string levelKey = color > 0 ? (levelId + "_c" + std::to_string(color)) : levelId;
 
+    const auto now = std::chrono::time_point_cast<std::chrono::milliseconds>(
+                         std::chrono::system_clock::now())
+                         .time_since_epoch()
+                         .count();
+
     auto records = parseExistingLevels(readAll(output));
 
     auto it = records.find(levelKey);
     if (it == records.end()) {
-        records[levelKey] = LevelRecord{true, steps, replay};
+        LevelRecord rec;
+        rec.cleared = true;
+        rec.bestSteps = steps;
+        rec.replay = replay;
+        rec.updatedAt = now;
+        records[levelKey] = rec;
     } else {
         it->second.cleared = true;
         if (it->second.bestSteps <= 0 || steps < it->second.bestSteps || it->second.replay.empty()) {
             it->second.bestSteps = steps;
             it->second.replay = replay;
         }
+        it->second.updatedAt = now;
+        if (it->second.source.empty()) it->second.source = "make_replay_save";
+        if (it->second.solverAlgorithm.empty()) it->second.solverAlgorithm = "manual";
     }
-
-    const auto now = std::chrono::time_point_cast<std::chrono::milliseconds>(
-                         std::chrono::system_clock::now())
-                         .time_since_epoch()
-                         .count();
 
     std::ofstream ofs(output, std::ios::binary);
     if (!ofs) {
@@ -179,7 +202,12 @@ int main(int argc, char** argv) {
         ofs << "      \"" << kv.first << "\": {\n"
             << "        \"cleared\": " << (kv.second.cleared ? "true" : "false") << ",\n"
             << "        \"bestSteps\": " << kv.second.bestSteps << ",\n"
-            << "        \"replay\": \"" << kv.second.replay << "\"\n"
+            << "        \"replay\": \"" << kv.second.replay << "\",\n"
+            << "        \"solverAlgorithm\": \"" << kv.second.solverAlgorithm << "\",\n"
+            << "        \"expanded\": " << kv.second.expanded << ",\n"
+            << "        \"elapsedMs\": " << kv.second.elapsedMs << ",\n"
+            << "        \"updatedAt\": " << kv.second.updatedAt << ",\n"
+            << "        \"source\": \"" << kv.second.source << "\"\n"
             << "      }";
     }
 

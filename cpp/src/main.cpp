@@ -950,6 +950,11 @@ struct ReplayRecord {
     bool cleared = true;
     int bestSteps = 0;
     std::string replay;
+    std::string solverAlgorithm;
+    int expanded = 0;
+    long long elapsedMs = 0;
+    long long updatedAt = 0;
+    std::string source;
 };
 
 struct OfficialEntry {
@@ -1008,7 +1013,7 @@ static std::vector<OfficialEntry> buildOfficialManifest(const std::unordered_map
 
 static std::vector<int> parseNumericSelector(const std::string& input) {
     std::vector<int> out;
-    if (input.empty() || input == "all" || input == "ALL") return out;
+    if (input.empty() || input == "all" || input == "ALL" || input == "unsolved" || input == "UNSOLVED" || input == "ALL_UNSOLVED") return out;
 
     std::stringstream ss(input);
     std::string token;
@@ -1094,6 +1099,11 @@ static std::map<std::string, ReplayRecord> parseExistingSave(const std::string& 
     std::regex replayRe(R"rx("replay"\s*:\s*"([UDLRudlr]*)")rx");
     std::regex stepsRe(R"rx("bestSteps"\s*:\s*([0-9]+))rx");
     std::regex clearedRe(R"rx("cleared"\s*:\s*(true|false))rx");
+    std::regex algoRe(R"rx("solverAlgorithm"\s*:\s*"([^"]*)")rx");
+    std::regex expandedRe(R"rx("expanded"\s*:\s*([0-9]+))rx");
+    std::regex elapsedRe(R"rx("elapsedMs"\s*:\s*([0-9]+))rx");
+    std::regex updatedRe(R"rx("updatedAt"\s*:\s*([0-9]+))rx");
+    std::regex sourceRe(R"rx("source"\s*:\s*"([^"]*)")rx");
 
     for (auto it = std::sregex_iterator(body.begin(), body.end(), entryRe); it != std::sregex_iterator(); ++it) {
         ReplayRecord rec;
@@ -1106,6 +1116,11 @@ static std::map<std::string, ReplayRecord> parseExistingSave(const std::string& 
         if (std::regex_search(obj, m, replayRe)) rec.replay = m[1].str();
         if (std::regex_search(obj, m, stepsRe)) rec.bestSteps = std::stoi(m[1].str());
         if (std::regex_search(obj, m, clearedRe)) rec.cleared = (m[1].str() == "true");
+        if (std::regex_search(obj, m, algoRe)) rec.solverAlgorithm = m[1].str();
+        if (std::regex_search(obj, m, expandedRe)) rec.expanded = std::stoi(m[1].str());
+        if (std::regex_search(obj, m, elapsedRe)) rec.elapsedMs = std::stoll(m[1].str());
+        if (std::regex_search(obj, m, updatedRe)) rec.updatedAt = std::stoll(m[1].str());
+        if (std::regex_search(obj, m, sourceRe)) rec.source = m[1].str();
 
         if (!rec.replay.empty()) {
             std::transform(rec.replay.begin(), rec.replay.end(), rec.replay.begin(), [](unsigned char c) {
@@ -1138,7 +1153,12 @@ static void writeSolverSaveJson(const std::string& path, const std::map<std::str
         ofs << "      \"" << kv.first << "\": {\n"
             << "        \"cleared\": " << (kv.second.cleared ? "true" : "false") << ",\n"
             << "        \"bestSteps\": " << kv.second.bestSteps << ",\n"
-            << "        \"replay\": \"" << kv.second.replay << "\"\n"
+            << "        \"replay\": \"" << kv.second.replay << "\",\n"
+            << "        \"solverAlgorithm\": \"" << kv.second.solverAlgorithm << "\",\n"
+            << "        \"expanded\": " << kv.second.expanded << ",\n"
+            << "        \"elapsedMs\": " << kv.second.elapsedMs << ",\n"
+            << "        \"updatedAt\": " << kv.second.updatedAt << ",\n"
+            << "        \"source\": \"" << kv.second.source << "\"\n"
             << "      }";
     }
     ofs << "\n    }\n  }\n}\n";
@@ -1158,7 +1178,12 @@ static void writeSolverSaveJs(const std::string& path, const std::map<std::strin
         first = false;
         ofs << "      \"" << kv.first << "\": {\"cleared\": " << (kv.second.cleared ? "true" : "false")
             << ", \"bestSteps\": " << kv.second.bestSteps
-            << ", \"replay\": \"" << kv.second.replay << "\"}";
+            << ", \"replay\": \"" << kv.second.replay << "\""
+            << ", \"solverAlgorithm\": \"" << kv.second.solverAlgorithm << "\""
+            << ", \"expanded\": " << kv.second.expanded
+            << ", \"elapsedMs\": " << kv.second.elapsedMs
+            << ", \"updatedAt\": " << kv.second.updatedAt
+            << ", \"source\": \"" << kv.second.source << "\"}";
     }
     ofs << "\n    }\n  }\n};\n";
 }
@@ -1283,8 +1308,9 @@ static int runInteractive() {
         }
 
         std::string selector;
-        std::cout << "range/list (e.g. 11-22 or 1,3,5; all=ALL) > ";
+        std::cout << "range/list (e.g. 11-22 or 1,3,5; all=ALL; unsolved=UNSOLVED) > ";
         std::cin >> selector;
+        bool onlyUnsolved = (selector == "UNSOLVED" || selector == "unsolved" || selector == "ALL_UNSOLVED");
 
         struct Task { std::string id; int color = 0; int label = 0; std::string saveKey; };
         std::vector<Task> tasks;
@@ -1294,6 +1320,10 @@ static int runInteractive() {
             std::set<int> labelSet(labels.begin(), labels.end());
             for (const auto& e : official) {
                 if (!labelSet.empty() && !labelSet.count(e.label)) continue;
+                if (onlyUnsolved) {
+                    auto rit = records.find(e.saveKey);
+                    if (rit != records.end() && !rit->second.replay.empty()) continue;
+                }
                 tasks.push_back({e.id, e.colorOverride, e.label, e.saveKey});
             }
         } else if (mode == 2) {
@@ -1302,11 +1332,23 @@ static int runInteractive() {
             for (int x : randomIds) {
                 if (!idSet.empty() && !idSet.count(x)) continue;
                 std::string sid = std::to_string(x);
-                tasks.push_back({sid, 0, x, "gen_" + sid});
+                std::string sk = "gen_" + sid;
+                if (onlyUnsolved) {
+                    auto rit = records.find(sk);
+                    if (rit != records.end() && !rit->second.replay.empty()) continue;
+                }
+                tasks.push_back({sid, 0, x, sk});
             }
         } else if (mode == 3) {
-            if (selector == "ALL" || selector == "all") {
-                for (const auto& cid : customIds) tasks.push_back({cid, 0, 0, "custom_" + cid});
+            if (selector == "ALL" || selector == "all" || onlyUnsolved) {
+                for (const auto& cid : customIds) {
+                    std::string sk = "custom_" + cid;
+                    if (onlyUnsolved) {
+                        auto rit = records.find(sk);
+                        if (rit != records.end() && !rit->second.replay.empty()) continue;
+                    }
+                    tasks.push_back({cid, 0, 0, sk});
+                }
             } else {
                 std::stringstream ss(selector);
                 std::string t;
@@ -1353,6 +1395,12 @@ static int runInteractive() {
                 rec.cleared = true;
                 rec.bestSteps = static_cast<int>(res.path.size());
                 rec.replay = res.path;
+                rec.solverAlgorithm = res.algorithm;
+                rec.expanded = res.expanded;
+                rec.elapsedMs = ms;
+                rec.updatedAt = std::chrono::time_point_cast<std::chrono::milliseconds>(
+                                    std::chrono::system_clock::now()).time_since_epoch().count();
+                rec.source = "bugma_solver";
 
                 auto rit = records.find(t.saveKey);
                 if (rit == records.end() || rit->second.bestSteps <= 0 || rec.bestSteps < rit->second.bestSteps || rit->second.replay.empty()) {
