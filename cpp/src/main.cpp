@@ -63,10 +63,35 @@ std::optional<std::string> readFile(const std::string& path) {
 
 std::unordered_map<std::string, Level> parseLevels(const std::string& text) {
     std::unordered_map<std::string, Level> out;
-    std::regex idRe("\"([0-9]+)\"\\s*:\\s*\\{");
-    std::regex colorRe("\"color\"\\s*:\\s*([0-9]+)");
-    std::regex modeRe("\"mode\"\\s*:\\s*([0-9]+)");
-    std::regex tokenRe("\"([^\"]+)\"");
+
+    std::regex idRe("\\\"([0-9]+)\\\"\\s*:\\s*\\{");
+    std::regex colorRe("\\\"color\\\"\\s*:\\s*([0-9]+)");
+    std::regex modeRe("\\\"mode\\\"\\s*:\\s*([0-9]+)");
+
+    auto parseMapTokens = [](const std::string& raw) {
+        std::vector<std::string> tokens;
+        bool inString = false;
+        std::string cur;
+        for (size_t i = 0; i < raw.size(); ++i) {
+            char c = raw[i];
+            if (!inString) {
+                if (c == '"') {
+                    inString = true;
+                    cur.clear();
+                }
+            } else {
+                if (c == '\\' && i + 1 < raw.size()) {
+                    cur.push_back(raw[++i]);
+                } else if (c == '"') {
+                    inString = false;
+                    tokens.push_back(cur);
+                } else {
+                    cur.push_back(c);
+                }
+            }
+        }
+        return tokens;
+    };
 
     size_t searchPos = 0;
     while (searchPos < text.size()) {
@@ -74,40 +99,97 @@ std::unordered_map<std::string, Level> parseLevels(const std::string& text) {
         std::string tail = text.substr(searchPos);
         if (!std::regex_search(tail, idm, idRe)) break;
 
-        size_t idStart = searchPos + static_cast<size_t>(idm.position());
-        size_t blockStart = idStart + static_cast<size_t>(idm.length());
-        std::string id = idm[1].str();
+        const std::string id = idm[1].str();
+        const size_t objStart = searchPos + static_cast<size_t>(idm.position()) + static_cast<size_t>(idm.length()) - 1; // '{'
 
-        size_t mapKeyPos = text.find("\"map\"", blockStart);
-        if (mapKeyPos == std::string::npos) {
-            searchPos = blockStart;
-            continue;
+        int depth = 0;
+        bool inString = false;
+        size_t objEnd = std::string::npos;
+        for (size_t i = objStart; i < text.size(); ++i) {
+            char c = text[i];
+            if (inString) {
+                if (c == '\\') {
+                    ++i;
+                } else if (c == '"') {
+                    inString = false;
+                }
+                continue;
+            }
+            if (c == '"') {
+                inString = true;
+                continue;
+            }
+            if (c == '{') depth++;
+            else if (c == '}') {
+                depth--;
+                if (depth == 0) {
+                    objEnd = i;
+                    break;
+                }
+            }
         }
 
-        std::string head = text.substr(blockStart, mapKeyPos - blockStart);
+        if (objEnd == std::string::npos) break;
+        const std::string block = text.substr(objStart, objEnd - objStart + 1);
+
         std::smatch cm, mm;
-        if (!std::regex_search(head, cm, colorRe) || !std::regex_search(head, mm, modeRe)) {
-            searchPos = mapKeyPos + 5;
+        if (!std::regex_search(block, cm, colorRe) || !std::regex_search(block, mm, modeRe)) {
+            searchPos = objEnd + 1;
             continue;
         }
 
-        size_t lbr = text.find('[', mapKeyPos);
-        size_t rbr = (lbr == std::string::npos) ? std::string::npos : text.find(']', lbr);
-        if (lbr == std::string::npos || rbr == std::string::npos) {
-            searchPos = mapKeyPos + 5;
+        size_t mapKeyPos = block.find("\"map\"");
+        if (mapKeyPos == std::string::npos) {
+            searchPos = objEnd + 1;
+            continue;
+        }
+
+        size_t lbr = block.find('[', mapKeyPos);
+        if (lbr == std::string::npos) {
+            searchPos = objEnd + 1;
+            continue;
+        }
+
+        int arrDepth = 0;
+        inString = false;
+        size_t rbr = std::string::npos;
+        for (size_t i = lbr; i < block.size(); ++i) {
+            char c = block[i];
+            if (inString) {
+                if (c == '\\') {
+                    ++i;
+                } else if (c == '"') {
+                    inString = false;
+                }
+                continue;
+            }
+            if (c == '"') {
+                inString = true;
+                continue;
+            }
+            if (c == '[') arrDepth++;
+            else if (c == ']') {
+                arrDepth--;
+                if (arrDepth == 0) {
+                    rbr = i;
+                    break;
+                }
+            }
+        }
+
+        if (rbr == std::string::npos) {
+            searchPos = objEnd + 1;
             continue;
         }
 
         Level lvl;
         lvl.color = std::stoi(cm[1].str());
         lvl.mode = std::stoi(mm[1].str());
-        std::string mapRaw = text.substr(lbr + 1, rbr - lbr - 1);
-        for (auto jt = std::sregex_iterator(mapRaw.begin(), mapRaw.end(), tokenRe); jt != std::sregex_iterator(); ++jt) {
-            lvl.map.push_back((*jt)[1].str());
-        }
+        std::string mapRaw = block.substr(lbr + 1, rbr - lbr - 1);
+        lvl.map = parseMapTokens(mapRaw);
 
         if (lvl.map.size() == N * N) out[id] = std::move(lvl);
-        searchPos = rbr + 1;
+        searchPos = objEnd + 1;
     }
 
     return out;
