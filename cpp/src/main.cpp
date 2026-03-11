@@ -923,44 +923,9 @@ std::string encode(const State& s) {
     return key;
 }
 
-struct SolveResult {
-    bool solved = false;
-    std::string path;
-    int expanded = 0;
-};
-
-SolveResult bfsSolve(const State& start, int maxNodes) {
-    if (isSolved(start)) return {true, "", 0};
-
-    struct Node { State s; std::string path; };
-    std::queue<Node> q;
-    std::unordered_set<std::string> vis;
-
-    q.push({start, ""});
-    vis.insert(encode(start));
-
-    const std::array<char, 4> moves{{'U', 'D', 'L', 'R'}};
-
-    int expanded = 0;
-    while (!q.empty() && expanded < maxNodes) {
-        Node cur = std::move(q.front()); q.pop();
-        ++expanded;
-
-        for (char mv : moves) {
-            State nxt;
-            if (!applyAction(cur.s, mv, nxt)) continue;
-            auto k = encode(nxt);
-            if (vis.count(k)) continue;
-            std::string np = cur.path + mv;
-            if (isSolved(nxt)) return {true, np, expanded};
-            vis.insert(std::move(k));
-            q.push({std::move(nxt), std::move(np)});
-        }
-    }
-    return {false, "", expanded};
-}
-
 } // namespace bugma
+
+#include "search_algorithms.hpp"
 
 struct ReplayRecord {
     bool cleared = true;
@@ -1165,10 +1130,10 @@ static std::unordered_map<std::string, bugma::Level> loadAllLevels() {
 
 static void printAlgorithmIntro() {
     std::cout
-        << "\n[Algorithm] Solver uses BFS over full game state.\n"
+        << "\n[Algorithm] Solver supports BFS / A* / Beam / MHA* / ARA* over full game state.\n"
         << "- State includes grid, form, direction, color theme, invincible flag, status.\n"
         << "- Each node expands 4 actions (U/D/L/R) via full turn-resolution mechanics.\n"
-        << "- BFS guarantees shortest-step solution under current rules when found.\n"
+        << "- BFS guarantees shortest-step solution under current rules when found; heuristic methods are faster on large spaces but not always shortest.\n"
         << "- maxNodes controls search budget (expanded nodes cap).\n\n";
 }
 
@@ -1235,6 +1200,17 @@ static int runInteractive() {
         std::cout << "maxNodes (default 120000) > ";
         std::cin >> maxNodes;
 
+        std::string algoInput = "bfs";
+        std::cout << "algo (bfs/astar/beam/mha/ara, default bfs) > ";
+        std::cin >> algoInput;
+        bugma::SearchAlgo algo = bugma::parseAlgo(algoInput);
+
+        int beamWidth = 128;
+        if (algo == bugma::SearchAlgo::BEAM) {
+            std::cout << "beamWidth (default 128) > ";
+            std::cin >> beamWidth;
+        }
+
         std::string selector;
         std::cout << "range/list (e.g. 11-22 or 1,3,5; all=ALL) > ";
         std::cin >> selector;
@@ -1286,13 +1262,13 @@ static int runInteractive() {
             if (t.color > 0) st.colorTheme = t.color;
 
             auto t0 = std::chrono::steady_clock::now();
-            auto res = bugma::bfsSolve(st, maxNodes);
+            auto res = bugma::solveWithAlgo(st, maxNodes, algo, beamWidth);
             auto t1 = std::chrono::steady_clock::now();
             long long ms = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
 
             std::cout << "[" << (i + 1) << "/" << tasks.size() << "] "
                       << t.id << (t.color > 0 ? ("_c" + std::to_string(t.color)) : "")
-                      << " nodes=" << res.expanded << " time=" << ms << "ms ";
+                      << " algo=" << res.algorithm << " nodes=" << res.expanded << " time=" << ms << "ms ";
 
             if (res.solved) {
                 std::cout << "SOLVED steps=" << res.path.size() << "\n";
@@ -1328,9 +1304,43 @@ int main(int argc, char** argv) {
         }
     }
 
-    std::string levelId = argc >= 2 ? argv[1] : "0";
-    int maxNodes = argc >= 3 ? std::stoi(argv[2]) : 120000;
-    int colorOverride = argc >= 4 ? std::stoi(argv[3]) : 0;
+    std::string levelId;
+    int maxNodes = 120000;
+    int colorOverride = 0;
+    bugma::SearchAlgo algo = bugma::SearchAlgo::BFS;
+    int beamWidth = 128;
+
+    int positional = 0;
+    for (int i = 1; i < argc; ++i) {
+        std::string arg = argv[i];
+        if (arg == "--algo" && i + 1 < argc) {
+            algo = bugma::parseAlgo(argv[++i]);
+            continue;
+        }
+        if (arg == "--beam" && i + 1 < argc) {
+            beamWidth = std::stoi(argv[++i]);
+            continue;
+        }
+        if ((arg == "--max-nodes" || arg == "-n") && i + 1 < argc) {
+            maxNodes = std::stoi(argv[++i]);
+            continue;
+        }
+        if ((arg == "--color" || arg == "-c") && i + 1 < argc) {
+            colorOverride = std::stoi(argv[++i]);
+            continue;
+        }
+        if (!arg.empty() && arg[0] == '-') continue;
+
+        if (positional == 0) levelId = arg;
+        else if (positional == 1) maxNodes = std::stoi(arg);
+        else if (positional == 2) colorOverride = std::stoi(arg);
+        positional++;
+    }
+
+    if (levelId.empty()) {
+        std::cerr << "Usage: ./cpp/build/bugma_solver <levelId> [maxNodes] [colorOverride] [--algo bfs|astar|beam|mha|ara] [--beam N]\n";
+        return 2;
+    }
 
     auto levels = loadAllLevels();
     auto it = levels.find(levelId);
@@ -1341,10 +1351,11 @@ int main(int argc, char** argv) {
 
     bugma::State start = bugma::loadState(it->second);
     if (colorOverride > 0) start.colorTheme = colorOverride;
-    auto res = bugma::bfsSolve(start, maxNodes);
+    auto res = bugma::solveWithAlgo(start, maxNodes, algo, beamWidth);
 
     int realColor = colorOverride > 0 ? colorOverride : it->second.color;
-    std::cout << "Level " << levelId << ", mode=" << it->second.mode << ", color=" << realColor << "\n";
+    std::cout << "Level " << levelId << ", mode=" << it->second.mode << ", color=" << realColor
+              << ", algo=" << res.algorithm << "\n";
     if (!res.solved) {
         std::cout << "No solution found under current model (node limit: " << maxNodes << ", expanded: " << res.expanded << ")\n";
         return 0;

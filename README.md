@@ -32,7 +32,7 @@
 
 当前 `cpp/` 下包含两个可执行工具：
 
-- `bugma_solver`：关卡求解器（BFS）
+- `bugma_solver`：关卡求解器（支持 BFS / A* / Beam / MHA* / ARA*）
 - `make_replay_save`：把 UDLR 路径写成前端可导入 JSON（支持读旧文件并合并）
 
 ### 逻辑移植说明
@@ -52,12 +52,14 @@ g++ -std=c++17 -O2 -o cpp/build/make_replay_save cpp/tools/make_replay_save.cpp
 ### 求解器使用
 
 ```bash
-./cpp/build/bugma_solver <levelId> [maxNodes] [colorOverride]
+./cpp/build/bugma_solver <levelId> [maxNodes] [colorOverride] [--algo bfs|astar|beam|mha|ara] [--beam N]
 ```
 
 - `levelId`：关卡ID（如 `1`、`61`、`1-1`）
-- `maxNodes`：BFS 节点上限（默认 `120000`）
+- `maxNodes`：搜索节点上限（默认 `120000`）
 - `colorOverride`：官方变色关覆盖颜色（如 `1/2/3/4/6`）
+- `--algo`：算法选择，默认 `bfs`
+- `--beam`：Beam Search 的宽度（默认 `128`）
 
 示例：
 
@@ -65,14 +67,16 @@ g++ -std=c++17 -O2 -o cpp/build/make_replay_save cpp/tools/make_replay_save.cpp
 ./cpp/build/bugma_solver 1 12000
 ./cpp/build/bugma_solver 61 12000 4
 ./cpp/build/bugma_solver 1-1 12000
+./cpp/build/bugma_solver 1 20000 --algo astar
+./cpp/build/bugma_solver 1 20000 --algo beam --beam 256
 ```
 
 ### 求解算法原理（当前实现）
 
-- 使用 **BFS（广度优先搜索）** 在完整游戏状态空间里找解。
+- 支持 **BFS / A* / Beam Search / MHA* / ARA*** 五种策略。
 - 一个状态节点包含：前景网格、角色形态、朝向、主题色、无敌状态、胜负状态等。
 - 每个节点扩展 4 个动作（`U/D/L/R`），并执行完整回合结算（移动、战斗、地板触发、胜负检查）。
-- 因为是 BFS，若在给定规则和节点上限内找到解，通常是“步数最短解”。
+- BFS 在给定规则和节点上限内找到解时通常是“步数最短解”；其余启发式算法更偏向在大图上更快找可行解。
 - `maxNodes` 是搜索预算上限。
 
 ### 交互式求解模式
@@ -85,8 +89,9 @@ g++ -std=c++17 -O2 -o cpp/build/make_replay_save cpp/tools/make_replay_save.cpp
 
 - 输入模式：`1=official / 2=random / 3=custom`
 - 输入节点上限（`maxNodes`）
+- 输入算法（`bfs/astar/beam/mha/ara`，beam 可额外输入 `beamWidth`）
 - 输入关卡范围：支持 `11`、`11-22`、`1,3,5-8`、`ALL`
-- 逐关打印：是否解出、步数、扩展节点数、耗时
+- 逐关打印：算法名、是否解出、步数、扩展节点数、耗时
 
 交互模式会启动时显示三个模式各自关卡数量，并读取现有 `cpp/banmen_save_import.json`，打印未解关卡（官方与随机会尽量合并区间，custom打印总未解数）。
 
