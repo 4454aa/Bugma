@@ -2,7 +2,7 @@
 
 当前版本已把 JS 里的**核心回合机制**迁移到 C++ 求解器：
 
-- 读取 `js/generated_levels.js`，并自动合并 `js/levels.js`，按前端坐标规则加载 14x14。
+- 读取 `js/generated_levels.js`，并自动合并 `js/levels.js`（主线/官方）和 `js/custom_levels.js`（自定义关卡包），按前端坐标规则加载 14x14。
 - 双层网格移动（前景/背景），含 Form1 推动可推物、心堆叠跟随移动。
 - Form2 转身触发的蓝/黄心互换状态机（`hphanten`）。
 - 战斗入口与多数机制：

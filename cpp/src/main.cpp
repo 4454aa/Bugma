@@ -64,9 +64,9 @@ std::optional<std::string> readFile(const std::string& path) {
 std::unordered_map<std::string, Level> parseLevels(const std::string& text) {
     std::unordered_map<std::string, Level> out;
 
-    std::regex idRe("\\\"([0-9]+)\\\"\\s*:\\s*\\{");
-    std::regex colorRe("\\\"color\\\"\\s*:\\s*([0-9]+)");
-    std::regex modeRe("\\\"mode\\\"\\s*:\\s*([0-9]+)");
+    std::regex idRe(R"rx("([0-9]+(?:-[0-9]+)?)"\s*:\s*\{)rx");
+    std::regex colorRe(R"rx("color"\s*:\s*([0-9]+))rx");
+    std::regex modeRe(R"rx("mode"\s*:\s*([0-9]+))rx");
 
     auto parseMapTokens = [](const std::string& raw) {
         std::vector<std::string> tokens;
@@ -968,6 +968,12 @@ int main(int argc, char** argv) {
     if (extraOpt) {
         auto extra = bugma::parseLevels(*extraOpt);
         for (auto& kv : extra) levels[kv.first] = std::move(kv.second);
+    }
+
+    auto customOpt = bugma::readFile("js/custom_levels.js");
+    if (customOpt) {
+        auto custom = bugma::parseLevels(*customOpt);
+        for (auto& kv : custom) levels[kv.first] = std::move(kv.second);
     }
     auto it = levels.find(levelId);
     if (it == levels.end()) {
