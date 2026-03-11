@@ -392,15 +392,25 @@ void heroineHpTobasu(const State& st, Grid& b) {
     int px = st.px, py = st.py;
     int y = py + 1;
     if (y >= N) return;
+
     if (st.dir == RIGHT) {
+        if (b[px][y] == 131) return;
+
         while (y < N) {
             int id = b[px][y];
             int type = id / 10;
-            if (!((type == 10 || type == 11 || type == 12) && id % 10 >= 1 && id % 10 <= 3)) break;
-            if (id % 10 == 1) {
+
+            if (type == 10) {
+                b[px][y] += 10;
+            } else if (type == 11) {
                 b[px][y] = 0;
-                if (px < 13 && b[px + 1][y] == 0) b[px + 1][y] = id + 10;
+                if (px > 0 && b[px - 1][y] == 0) b[px - 1][y] = id + 10;
+            } else if (type == 12) {
+                b[px][y] -= 20;
+            } else {
+                break;
             }
+
             if (y < 13 && (id % 10 == 3) && (type == b[px][y + 1] / 10)) {
                 y++;
                 continue;
@@ -408,14 +418,23 @@ void heroineHpTobasu(const State& st, Grid& b) {
             break;
         }
     } else {
+        if (b[px][y] == 131) return;
+
         while (y < N) {
             int id = b[px][y];
             int type = id / 10;
-            if (!((type == 10 || type == 11 || type == 12) && id % 10 >= 1 && id % 10 <= 3)) break;
-            if (id % 10 == 1) {
+
+            if (type == 10) {
+                b[px][y] += 20;
+            } else if (type == 11) {
+                b[px][y] -= 10;
+            } else if (type == 12) {
                 b[px][y] = 0;
                 if (px < 13 && b[px + 1][y] == 0) b[px + 1][y] = id - 10;
+            } else {
+                break;
             }
+
             if (y < 13 && (id % 10 == 3) && (type == b[px][y + 1] / 10)) {
                 y++;
                 continue;
