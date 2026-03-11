@@ -42,10 +42,7 @@ cmake --build cpp/build -j
 你可以用脚本直接把求解器输出的 `UDLR` 路径打包成前端可导入存档：
 
 ```bash
-python cpp/tools/make_replay_save.py \
-  --level-id 1 \
-  --replay RRRRRR \
-  --output my_replay.json
+./cpp/build/make_replay_save --level-id 1 --replay RRRRRR --output my_replay.json
 ```
 
 然后在网页里：
@@ -60,11 +57,7 @@ python cpp/tools/make_replay_save.py \
 官方变体在存档里用 key：`<levelId>_c<color>`，例如 `61_c4`：
 
 ```bash
-python cpp/tools/make_replay_save.py \
-  --level-id 61 \
-  --color 4 \
-  --replay DDDRRRURDR \
-  --output replay_61_c4.json
+./cpp/build/make_replay_save --level-id 61 --color 4 --replay DDDRRRURDR --output replay_61_c4.json
 ```
 
 ### 自定义 / 随机关卡 key 约定
@@ -75,12 +68,13 @@ python cpp/tools/make_replay_save.py \
 示例：
 
 ```bash
-python cpp/tools/make_replay_save.py --level-id custom_1-1 --replay LDRLURD...
-python cpp/tools/make_replay_save.py --level-id gen_0 --replay UURRDD...
+./cpp/build/make_replay_save --level-id custom_1-1 --replay LDRLURD...
+./cpp/build/make_replay_save --level-id gen_0 --replay UURRDD...
 ```
 
 ### 可选参数
 
 - `--steps`：手动指定 bestSteps（默认等于 replay 长度）
+- `--color`：官方变色关颜色覆盖（会生成 `<levelId>_c<color>` key）
 - `--output`：输出文件名
 
