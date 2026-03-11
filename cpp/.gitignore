@@ -1,3 +1,4 @@
-build/
+build/*
+!build/.gitkeep
 banmen_save_import.json
 banmen_save_import.js

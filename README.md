@@ -43,9 +43,9 @@
 
 ### 构建
 
-```bash
-mkdir -p cpp/build
+> 仓库已预置 `cpp/build/` 目录（含 `.gitkeep`），可直接编译输出可执行文件。
 
+```bash
 g++ -std=c++17 -O2 -o cpp/build/bugma_solver cpp/src/main.cpp
 
 g++ -std=c++17 -O2 -o cpp/build/make_replay_save cpp/tools/make_replay_save.cpp
@@ -80,6 +80,13 @@ g++ -std=c++17 -O2 -o cpp/build/make_replay_save cpp/tools/make_replay_save.cpp
 - 每个节点扩展 4 个动作（`U/D/L/R`），并执行完整回合结算（移动、战斗、地板触发、胜负检查）。
 - BFS 在给定规则和节点上限内找到解时通常是“步数最短解”；其余启发式算法更偏向在大图上更快找可行解。
 - `maxNodes` 是搜索预算上限。
+
+### 运行模式说明
+
+`bugma_solver` 有两种运行方式：
+
+- **直接运行（单关模式）**：不加 `--interactive` 时默认进入。你需要在命令行里直接给关卡参数，程序会只求解这一关并输出结果。
+- **交互模式**：加 `--interactive`（或 `-i`）后进入菜单式批量求解，可选 official/random/custom、范围和算法。
 
 ### 交互式求解模式
 
