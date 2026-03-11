@@ -36,3 +36,51 @@ cmake --build cpp/build -j
 ## 现状验证
 
 已可解出部分关卡（例如 `1/3/4/5/6/7/8`）。
+
+## 自动化生成“可导入游戏界面”的解法 JSON
+
+你可以用脚本直接把求解器输出的 `UDLR` 路径打包成前端可导入存档：
+
+```bash
+python cpp/tools/make_replay_save.py \
+  --level-id 1 \
+  --replay RRRRRR \
+  --output my_replay.json
+```
+
+然后在网页里：
+
+1. 进入 `DATA I/O`
+2. 点击 `IMPORT`
+3. 选中 `my_replay.json`
+4. 刷新后在选关按钮上点 `▶` 回放
+
+### 颜色变体关卡（官方 61~67 变色）
+
+官方变体在存档里用 key：`<levelId>_c<color>`，例如 `61_c4`：
+
+```bash
+python cpp/tools/make_replay_save.py \
+  --level-id 61 \
+  --color 4 \
+  --replay DDDRRRURDR \
+  --output replay_61_c4.json
+```
+
+### 自定义 / 随机关卡 key 约定
+
+- 自定义关卡：`custom_1-1` 这类 id
+- 随机关卡：`gen_0` 这类 id
+
+示例：
+
+```bash
+python cpp/tools/make_replay_save.py --level-id custom_1-1 --replay LDRLURD...
+python cpp/tools/make_replay_save.py --level-id gen_0 --replay UURRDD...
+```
+
+### 可选参数
+
+- `--steps`：手动指定 bestSteps（默认等于 replay 长度）
+- `--output`：输出文件名
+
