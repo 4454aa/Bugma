@@ -24,7 +24,7 @@ cmake --build cpp/build -j
 ## 使用
 
 ```bash
-./cpp/build/bugma_solver <levelId> [maxNodes]
+./cpp/build/bugma_solver <levelId> [maxNodes] [colorOverride]
 ```
 
 例如：

@@ -955,6 +955,7 @@ std::optional<std::string> bfsSolve(const State& start, int maxNodes) {
 int main(int argc, char** argv) {
     std::string levelId = argc >= 2 ? argv[1] : "0";
     int maxNodes = argc >= 3 ? std::stoi(argv[2]) : 120000;
+    int colorOverride = argc >= 4 ? std::stoi(argv[3]) : 0;
 
     auto textOpt = bugma::readFile("js/generated_levels.js");
     if (!textOpt) {
@@ -982,9 +983,11 @@ int main(int argc, char** argv) {
     }
 
     bugma::State start = bugma::loadState(it->second);
+    if (colorOverride > 0) start.colorTheme = colorOverride;
     auto answer = bugma::bfsSolve(start, maxNodes);
 
-    std::cout << "Level " << levelId << ", mode=" << it->second.mode << ", color=" << it->second.color << "\n";
+    int realColor = colorOverride > 0 ? colorOverride : it->second.color;
+    std::cout << "Level " << levelId << ", mode=" << it->second.mode << ", color=" << realColor << "\n";
     if (!answer.has_value()) {
         std::cout << "No solution found under current model (node limit: " << maxNodes << ")\n";
         return 0;
