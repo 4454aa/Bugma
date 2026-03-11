@@ -95,6 +95,12 @@ g++ -std=c++17 -O2 -o cpp/build/make_replay_save cpp/tools/make_replay_save.cpp
 
 交互模式会启动时显示三个模式各自关卡数量，并读取现有 `cpp/banmen_save_import.json`，打印未解关卡（官方与随机会尽量合并区间，custom打印总未解数）。
 
+存档 key 与前端对齐规则：
+
+- official：与前端一致，`1-52` 会按关卡配置自动使用 `id_c<color>`（例如 `1_c1`）；`61-67` 变色组使用 `61_c1` 这类 key。
+- random：仅使用 `js/generated_levels.js` 作为数据源，并写入 `gen_<id>` key。
+- custom：使用 `js/custom_levels.js`，并写入 `custom_<id>` key。
+
 ### 回放 JSON 生成（可导入网页）
 
 ```bash

@@ -944,14 +944,15 @@ static std::string levelKey(const std::string& id, int colorOverride) {
     return colorOverride > 0 ? id + "_c" + std::to_string(colorOverride) : id;
 }
 
-static std::vector<OfficialEntry> buildOfficialManifest() {
+static std::vector<OfficialEntry> buildOfficialManifest(const std::unordered_map<std::string, bugma::Level>& officialLevels) {
     std::vector<OfficialEntry> out;
     for (int i = 1; i <= 52; ++i) {
         OfficialEntry e;
         e.label = i;
         e.id = std::to_string(i);
-        e.colorOverride = 0;
-        e.saveKey = e.id;
+        auto it = officialLevels.find(e.id);
+        if (it != officialLevels.end()) e.colorOverride = it->second.color;
+        e.saveKey = levelKey(e.id, e.colorOverride);
         out.push_back(std::move(e));
     }
 
@@ -1033,16 +1034,49 @@ static std::string mergeIntervals(const std::vector<int>& nums) {
     return os.str();
 }
 
+
+static size_t findMatchingBrace(const std::string& s, size_t openPos) {
+    int depth = 0;
+    bool inString = false;
+    for (size_t i = openPos; i < s.size(); ++i) {
+        char c = s[i];
+        if (inString) {
+            if (c == '\\') ++i;
+            else if (c == '"') inString = false;
+            continue;
+        }
+        if (c == '"') {
+            inString = true;
+            continue;
+        }
+        if (c == '{') depth++;
+        else if (c == '}') {
+            depth--;
+            if (depth == 0) return i;
+        }
+    }
+    return std::string::npos;
+}
+
 static std::map<std::string, ReplayRecord> parseExistingSave(const std::string& text) {
     std::map<std::string, ReplayRecord> out;
     if (text.empty()) return out;
+
+    size_t levelsKey = text.find("\"levels\"");
+    if (levelsKey == std::string::npos) return out;
+    size_t objStart = text.find('{', levelsKey);
+    if (objStart == std::string::npos) return out;
+    size_t objEnd = findMatchingBrace(text, objStart);
+    if (objEnd == std::string::npos || objEnd <= objStart) return out;
+
+    std::string body = text.substr(objStart + 1, objEnd - objStart - 1);
 
     std::regex entryRe(R"rx("([^"]+)"\s*:\s*\{([\s\S]*?)\})rx");
     std::regex replayRe(R"rx("replay"\s*:\s*"([UDLRudlr]*)")rx");
     std::regex stepsRe(R"rx("bestSteps"\s*:\s*([0-9]+))rx");
     std::regex clearedRe(R"rx("cleared"\s*:\s*(true|false))rx");
 
-    for (auto it = std::sregex_iterator(text.begin(), text.end(), entryRe); it != std::sregex_iterator(); ++it) {
+    for (auto it = std::sregex_iterator(body.begin(), body.end(), entryRe); it != std::sregex_iterator(); ++it) {
         ReplayRecord rec;
         rec.bestSteps = 0;
         rec.cleared = true;
@@ -1110,22 +1144,39 @@ static void writeSolverSaveJs(const std::string& path, const std::map<std::strin
     ofs << "\n    }\n  }\n};\n";
 }
 
-static std::unordered_map<std::string, bugma::Level> loadAllLevels() {
-    auto textOpt = bugma::readFile("js/generated_levels.js");
-    if (!textOpt) {
+struct LevelPacks {
+    std::unordered_map<std::string, bugma::Level> official;
+    std::unordered_map<std::string, bugma::Level> random;
+    std::unordered_map<std::string, bugma::Level> custom;
+};
+
+static LevelPacks loadLevelPacks() {
+    LevelPacks packs;
+
+    if (auto textOpt = bugma::readFile("js/levels.js"); textOpt) {
+        packs.official = bugma::parseLevels(*textOpt);
+    } else {
+        throw std::runtime_error("Cannot read js/levels.js");
+    }
+
+    if (auto randomOpt = bugma::readFile("js/generated_levels.js"); randomOpt) {
+        packs.random = bugma::parseLevels(*randomOpt);
+    } else {
         throw std::runtime_error("Cannot read js/generated_levels.js");
     }
-    auto levels = bugma::parseLevels(*textOpt);
 
-    if (auto extraOpt = bugma::readFile("js/levels.js"); extraOpt) {
-        auto extra = bugma::parseLevels(*extraOpt);
-        for (auto& kv : extra) levels[kv.first] = std::move(kv.second);
-    }
     if (auto customOpt = bugma::readFile("js/custom_levels.js"); customOpt) {
-        auto custom = bugma::parseLevels(*customOpt);
-        for (auto& kv : custom) levels[kv.first] = std::move(kv.second);
+        packs.custom = bugma::parseLevels(*customOpt);
     }
-    return levels;
+
+    return packs;
+}
+
+static std::unordered_map<std::string, bugma::Level> mergeAllLevels(const LevelPacks& packs) {
+    auto merged = packs.random;
+    for (const auto& kv : packs.official) merged[kv.first] = kv.second;
+    for (const auto& kv : packs.custom) merged[kv.first] = kv.second;
+    return merged;
 }
 
 static void printAlgorithmIntro() {
@@ -1138,11 +1189,12 @@ static void printAlgorithmIntro() {
 }
 
 static int runInteractive() {
-    auto levels = loadAllLevels();
-    auto official = buildOfficialManifest();
+    auto packs = loadLevelPacks();
+    auto levels = mergeAllLevels(packs);
+    auto official = buildOfficialManifest(packs.official);
 
     std::vector<int> randomIds;
-    for (const auto& kv : levels) {
+    for (const auto& kv : packs.random) {
         if (std::regex_match(kv.first, std::regex(R"(^\d+$)"))) {
             int n = std::stoi(kv.first);
             if (n >= 0 && n < 1000) randomIds.push_back(n);
@@ -1152,7 +1204,7 @@ static int runInteractive() {
     randomIds.erase(std::unique(randomIds.begin(), randomIds.end()), randomIds.end());
 
     std::vector<std::string> customIds;
-    for (const auto& kv : levels) {
+    for (const auto& kv : packs.custom) {
         if (std::regex_match(kv.first, std::regex(R"(^\d+-\d+$)"))) customIds.push_back(kv.first);
     }
     std::sort(customIds.begin(), customIds.end());
@@ -1250,10 +1302,15 @@ static int runInteractive() {
 
         std::cout << "Selected " << tasks.size() << " levels\n";
         int solvedNow = 0;
+        const auto* activeSet = &levels;
+        if (mode == 1) activeSet = &packs.official;
+        else if (mode == 2) activeSet = &packs.random;
+        else if (mode == 3) activeSet = &packs.custom;
+
         for (size_t i = 0; i < tasks.size(); ++i) {
             const auto& t = tasks[i];
-            auto it = levels.find(t.id);
-            if (it == levels.end()) {
+            auto it = activeSet->find(t.id);
+            if (it == activeSet->end()) {
                 std::cout << "[" << (i + 1) << "/" << tasks.size() << "] skip missing " << t.id << "\n";
                 continue;
             }
@@ -1342,7 +1399,7 @@ int main(int argc, char** argv) {
         return 2;
     }
 
-    auto levels = loadAllLevels();
+    auto levels = mergeAllLevels(loadLevelPacks());
     auto it = levels.find(levelId);
     if (it == levels.end()) {
         std::cerr << "Level not found: " << levelId << "\n";
