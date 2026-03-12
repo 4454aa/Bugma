@@ -55,7 +55,7 @@ g++ -std=c++17 -O2 -o cpp/build/make_replay_save cpp/tools/make_replay_save.cpp
 ### 求解器使用
 
 ```bash
-./cpp/build/bugma_solver <levelId> [maxNodes] [colorOverride] [--algo bfs|astar|beam|mha|ara] [--beam N]
+./cpp/build/bugma_solver <levelId> [maxNodes] [colorOverride] [--algo bfs|astar|beam|mha|ara] [--beam N] [--astar-w W] [--mha-aux-w W] [--ara-start-w W] [--ara-end-w W] [--ara-step S]
 ```
 
 - `levelId`：关卡ID（如 `1`、`61`、`1-1`）
@@ -63,6 +63,9 @@ g++ -std=c++17 -O2 -o cpp/build/make_replay_save cpp/tools/make_replay_save.cpp
 - `colorOverride`：官方变色关覆盖颜色（如 `1/2/3/4/6`）
 - `--algo`：算法选择，默认 `bfs`
 - `--beam`：Beam Search 的宽度（默认 `128`）
+- `--astar-w`：Weighted A* 的启发式权重（默认 `1.0`）
+- `--mha-aux-w`：MHA* 辅助启发式权重（默认 `1.8`）
+- `--ara-start-w / --ara-end-w / --ara-step`：ARA* 的权重退火区间（默认 `3.0 -> 1.0`，步长 `0.5`）
 
 示例：
 
@@ -72,6 +75,8 @@ g++ -std=c++17 -O2 -o cpp/build/make_replay_save cpp/tools/make_replay_save.cpp
 ./cpp/build/bugma_solver 1-1 12000
 ./cpp/build/bugma_solver 1 20000 --algo astar
 ./cpp/build/bugma_solver 1 20000 --algo beam --beam 256
+./cpp/build/bugma_solver 1 20000 --algo astar --astar-w 1.4
+./cpp/build/bugma_solver 1 20000 --algo ara --ara-start-w 2.8 --ara-end-w 1.0 --ara-step 0.4
 ```
 
 ### 求解算法原理（当前实现）
@@ -99,7 +104,7 @@ g++ -std=c++17 -O2 -o cpp/build/make_replay_save cpp/tools/make_replay_save.cpp
 
 - 输入模式：`1=official / 2=random / 3=custom`
 - 输入节点上限（`maxNodes`）
-- 输入算法（`bfs/astar/beam/mha/ara`，beam 可额外输入 `beamWidth`）
+- 输入算法（`bfs/astar/beam/mha/ara`，并可按算法输入默认权重参数：`astarWeight`/`beamWidth`/`mhaAuxWeight`/`araStartWeight, araEndWeight, araStep`）
 - 输入关卡范围：支持 `11`、`11-22`、`1,3,5-8`、`ALL`、`UNSOLVED`（仅跑未解）
 - 逐关打印：算法名、是否解出、步数、扩展节点数、耗时
 

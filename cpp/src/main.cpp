@@ -1301,10 +1301,23 @@ static int runInteractive() {
         std::cin >> algoInput;
         bugma::SearchAlgo algo = bugma::parseAlgo(algoInput);
 
-        int beamWidth = 128;
-        if (algo == bugma::SearchAlgo::BEAM) {
+        bugma::SearchConfig cfg;
+        if (algo == bugma::SearchAlgo::ASTAR) {
+            std::cout << "astarWeight (default 1.0) > ";
+            std::cin >> cfg.astarWeight;
+        } else if (algo == bugma::SearchAlgo::BEAM) {
             std::cout << "beamWidth (default 128) > ";
-            std::cin >> beamWidth;
+            std::cin >> cfg.beamWidth;
+        } else if (algo == bugma::SearchAlgo::MHA) {
+            std::cout << "mhaAuxWeight (default 1.8) > ";
+            std::cin >> cfg.mhaAuxWeight;
+        } else if (algo == bugma::SearchAlgo::ARA) {
+            std::cout << "araStartWeight (default 3.0) > ";
+            std::cin >> cfg.araStartWeight;
+            std::cout << "araEndWeight (default 1.0) > ";
+            std::cin >> cfg.araEndWeight;
+            std::cout << "araStep (default 0.5) > ";
+            std::cin >> cfg.araStep;
         }
 
         std::string selector;
@@ -1380,7 +1393,7 @@ static int runInteractive() {
             if (t.color > 0) st.colorTheme = t.color;
 
             auto t0 = std::chrono::steady_clock::now();
-            auto res = bugma::solveWithAlgo(st, maxNodes, algo, beamWidth);
+            auto res = bugma::solveWithAlgo(st, maxNodes, algo, cfg);
             auto t1 = std::chrono::steady_clock::now();
             long long ms = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
 
@@ -1432,7 +1445,7 @@ int main(int argc, char** argv) {
     int maxNodes = 120000;
     int colorOverride = 0;
     bugma::SearchAlgo algo = bugma::SearchAlgo::BFS;
-    int beamWidth = 128;
+    bugma::SearchConfig cfg;
 
     int positional = 0;
     for (int i = 1; i < argc; ++i) {
@@ -1442,7 +1455,27 @@ int main(int argc, char** argv) {
             continue;
         }
         if (arg == "--beam" && i + 1 < argc) {
-            beamWidth = std::stoi(argv[++i]);
+            cfg.beamWidth = std::stoi(argv[++i]);
+            continue;
+        }
+        if (arg == "--astar-w" && i + 1 < argc) {
+            cfg.astarWeight = std::stod(argv[++i]);
+            continue;
+        }
+        if (arg == "--mha-aux-w" && i + 1 < argc) {
+            cfg.mhaAuxWeight = std::stod(argv[++i]);
+            continue;
+        }
+        if (arg == "--ara-start-w" && i + 1 < argc) {
+            cfg.araStartWeight = std::stod(argv[++i]);
+            continue;
+        }
+        if (arg == "--ara-end-w" && i + 1 < argc) {
+            cfg.araEndWeight = std::stod(argv[++i]);
+            continue;
+        }
+        if (arg == "--ara-step" && i + 1 < argc) {
+            cfg.araStep = std::stod(argv[++i]);
             continue;
         }
         if ((arg == "--max-nodes" || arg == "-n") && i + 1 < argc) {
@@ -1462,7 +1495,9 @@ int main(int argc, char** argv) {
     }
 
     if (levelId.empty()) {
-        std::cerr << "Usage: ./cpp/build/bugma_solver <levelId> [maxNodes] [colorOverride] [--algo bfs|astar|beam|mha|ara] [--beam N]\n";
+        std::cerr << "Usage: ./cpp/build/bugma_solver <levelId> [maxNodes] [colorOverride] "
+                     "[--algo bfs|astar|beam|mha|ara] [--beam N] [--astar-w W] [--mha-aux-w W] "
+                     "[--ara-start-w W] [--ara-end-w W] [--ara-step S]\n";
         return 2;
     }
 
@@ -1475,7 +1510,7 @@ int main(int argc, char** argv) {
 
     bugma::State start = bugma::loadState(it->second);
     if (colorOverride > 0) start.colorTheme = colorOverride;
-    auto res = bugma::solveWithAlgo(start, maxNodes, algo, beamWidth);
+    auto res = bugma::solveWithAlgo(start, maxNodes, algo, cfg);
 
     int realColor = colorOverride > 0 ? colorOverride : it->second.color;
     std::cout << "Level " << levelId << ", mode=" << it->second.mode << ", color=" << realColor

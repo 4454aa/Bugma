@@ -26,6 +26,15 @@ struct SolveResult {
 
 enum class SearchAlgo { BFS, ASTAR, BEAM, MHA, ARA };
 
+struct SearchConfig {
+    int beamWidth = 128;
+    double astarWeight = 1.0;
+    double mhaAuxWeight = 1.8;
+    double araStartWeight = 3.0;
+    double araEndWeight = 1.0;
+    double araStep = 0.5;
+};
+
 inline int hEnemyCount(const State& s) {
     int c = 0;
     for (int x = 0; x < 14; ++x) {
@@ -178,7 +187,7 @@ inline SolveResult beamSolve(const State& start, int maxNodes, int beamWidth) {
     return {false, "", expanded, "Beam"};
 }
 
-inline SolveResult mhaSolve(const State& start, int maxNodes) {
+inline SolveResult mhaSolve(const State& start, int maxNodes, double auxWeight = 1.8) {
     if (isSolved(start)) return {true, "", 0, "MHA*"};
 
     struct Node {
@@ -199,7 +208,7 @@ inline SolveResult mhaSolve(const State& start, int maxNodes) {
     std::unordered_map<std::string, int> bestG;
 
     anchor.push({start, 0, heuristic1(start), ""});
-    aux.push({start, 0, static_cast<int>(1.8 * heuristic2(start)), ""});
+    aux.push({start, 0, static_cast<int>(auxWeight * heuristic2(start)), ""});
     bestG[encode(start)] = 0;
 
     const std::array<char, 4> moves{{'U', 'D', 'L', 'R'}};
@@ -223,22 +232,23 @@ inline SolveResult mhaSolve(const State& start, int maxNodes) {
             if (it != bestG.end() && it->second <= ng) continue;
             bestG[k] = ng;
             anchor.push({nxt, ng, ng + heuristic1(nxt), cur.path + mv});
-            aux.push({std::move(nxt), ng, ng + static_cast<int>(1.8 * heuristic2(nxt)), cur.path + mv});
+            aux.push({std::move(nxt), ng, ng + static_cast<int>(auxWeight * heuristic2(nxt)), cur.path + mv});
         }
     }
 
     return {false, "", expanded, "MHA*"};
 }
 
-inline SolveResult araSolve(const State& start, int maxNodes) {
+inline SolveResult araSolve(const State& start, int maxNodes, double startWeight = 3.0, double endWeight = 1.0, double step = 0.5) {
     // Practical anytime wrapper: iterative weighted A* with decreasing epsilon.
     // Not a full OPEN/CLOSED reuse ARA* implementation, but same idea: quickly
     // get a suboptimal solution then improve it as epsilon decreases.
-    std::vector<double> eps{3.0, 2.5, 2.0, 1.5, 1.2, 1.0};
+    if (startWeight < endWeight) std::swap(startWeight, endWeight);
+    if (step <= 0.0) step = 0.5;
     SolveResult best{false, "", 0, "ARA*"};
     int consumed = 0;
 
-    for (double e : eps) {
+    for (double e = startWeight; e >= endWeight - 1e-9; e -= step) {
         if (consumed >= maxNodes) break;
         int budget = maxNodes - consumed;
         auto r = weightedAStarSolve(start, budget, e, "ARA*");
@@ -250,18 +260,26 @@ inline SolveResult araSolve(const State& start, int maxNodes) {
             }
         }
     }
+    if (endWeight < 1.0 && consumed < maxNodes) {
+        auto r = weightedAStarSolve(start, maxNodes - consumed, 1.0, "ARA*");
+        consumed += r.expanded;
+        if (r.solved && (!best.solved || r.path.size() < best.path.size())) {
+            best = r;
+            best.algorithm = "ARA*";
+        }
+    }
 
     best.expanded = consumed;
     return best;
 }
 
-inline SolveResult solveWithAlgo(const State& start, int maxNodes, SearchAlgo algo, int beamWidth = 128) {
+inline SolveResult solveWithAlgo(const State& start, int maxNodes, SearchAlgo algo, const SearchConfig& cfg = SearchConfig{}) {
     switch (algo) {
         case SearchAlgo::BFS: return bfsSolve(start, maxNodes);
-        case SearchAlgo::ASTAR: return weightedAStarSolve(start, maxNodes, 1.0, "A*");
-        case SearchAlgo::BEAM: return beamSolve(start, maxNodes, beamWidth);
-        case SearchAlgo::MHA: return mhaSolve(start, maxNodes);
-        case SearchAlgo::ARA: return araSolve(start, maxNodes);
+        case SearchAlgo::ASTAR: return weightedAStarSolve(start, maxNodes, cfg.astarWeight, "A*");
+        case SearchAlgo::BEAM: return beamSolve(start, maxNodes, cfg.beamWidth);
+        case SearchAlgo::MHA: return mhaSolve(start, maxNodes, cfg.mhaAuxWeight);
+        case SearchAlgo::ARA: return araSolve(start, maxNodes, cfg.araStartWeight, cfg.araEndWeight, cfg.araStep);
     }
     return bfsSolve(start, maxNodes);
 }
