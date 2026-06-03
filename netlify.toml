@@ -1,0 +1,26 @@
+# Netlify 部署配置
+# 此配置仅部署单文件打包版 (bugma.html)，降低部署工作量。
+#
+# 使用方式：
+#   1. 先运行 python bundle.py 生成 bugma.html
+#   2. 将 bugma.html + netlify.toml 推送到 Git 仓库
+#   3. Netlify 自动检测并部署
+#
+# 或者直接在 Netlify 控制台设置：
+#   - Build command: python bundle.py
+#   - Publish directory: .
+
+[build]
+  command = "python bundle.py"
+  publish = "."
+
+[[redirects]]
+  from = "/"
+  to = "/bugma.html"
+  status = 200
+
+[[headers]]
+  for = "/bugma.html"
+  [headers.values]
+    Cache-Control = "public, max-age=3600"
+    Content-Type = "text/html; charset=utf-8"

@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <title>Bugma Level Editor</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/png" href="../assets/shirley.png">
+    <link rel="stylesheet" href="editor.css?v=20260602-png2">
+</head>
+
+<body>
+    <div class="app-shell">
+        <header class="topbar">
+            <div class="brand">
+                <span class="brand-mark">BUGMA</span>
+                <span class="brand-sub">LEVEL EDITOR</span>
+            </div>
+            <div class="top-actions" aria-label="Templates">
+                <button type="button" data-template="standard14">14x14</button>
+                <button type="button" data-template="small10x8">10x8</button>
+                <button type="button" data-template="wide20x14">20x14</button>
+                <button type="button" data-template="large24x16">24x16</button>
+            </div>
+            <div class="top-actions size-actions" aria-label="Board size">
+                <span class="size-label">Size</span>
+                <label>
+                    W
+                    <input id="level-width" type="number" min="4" max="40" value="14">
+                </label>
+                <label>
+                    H
+                    <input id="level-height" type="number" min="4" max="30" value="14">
+                </label>
+                <button type="button" id="apply-size">Apply Size</button>
+            </div>
+            <div class="top-actions" aria-label="History">
+                <button type="button" id="undo-button">Undo</button>
+                <button type="button" id="redo-button">Redo</button>
+            </div>
+        </header>
+
+        <main class="editor-layout">
+            <aside class="panel palette-panel">
+                <div class="panel-title">
+                    <span>Palette</span>
+                    <span id="selected-token">||</span>
+                </div>
+                <div class="palette-section">
+                    <div class="palette-heading">Heroine</div>
+                    <div id="heroine-palette" class="heroine-palette"></div>
+                </div>
+                <div class="palette-section">
+                    <div class="palette-heading">Theme</div>
+                    <div id="color-palette" class="color-palette"></div>
+                </div>
+                <div id="palette" class="palette"></div>
+            </aside>
+
+            <section class="workbench">
+                <div class="tool-row" aria-label="Tools">
+                    <button type="button" class="active" data-tool="paint">Paint</button>
+                    <button type="button" data-tool="erase">Erase</button>
+                    <button type="button" data-tool="pick">Pick</button>
+                    <button type="button" data-tool="rect">Rect</button>
+                    <button type="button" data-tool="fill">Fill</button>
+                </div>
+
+                <div class="canvas-shell">
+                    <canvas id="editor-canvas" width="224" height="224"></canvas>
+                </div>
+
+                <div class="status-row">
+                    <span id="status-cell">Cell: --</span>
+                    <span id="status-size">14 x 14</span>
+                    <span id="status-message">Ready</span>
+                </div>
+            </section>
+
+            <aside class="panel inspector-panel">
+                <div class="panel-title">Level</div>
+                <div class="form-grid">
+                    <label>
+                        ID
+                        <input id="level-id" type="text" value="new-level" spellcheck="false">
+                    </label>
+                    <label>
+                        Name
+                        <input id="level-name" type="text" value="New Level" spellcheck="false">
+                    </label>
+                    <label>
+                        Author
+                        <input id="level-author" type="text" spellcheck="false">
+                    </label>
+                </div>
+                <label class="notes-label">
+                    Notes
+                    <textarea id="level-notes" rows="3" spellcheck="false"></textarea>
+                </label>
+
+                <div class="panel-title">Validation</div>
+                <ul id="validation-list" class="validation-list"></ul>
+
+                <div class="panel-title">Export</div>
+                <div class="export-buttons">
+                    <button type="button" data-export="text">Text</button>
+                    <button type="button" data-export="json">JSON</button>
+                    <button type="button" data-export="js">JS</button>
+                    <button type="button" id="download-png" data-export="png">PNG</button>
+                </div>
+                <textarea id="export-output" rows="9" spellcheck="false"></textarea>
+                <div class="export-buttons">
+                    <button type="button" id="copy-output">Copy</button>
+                    <button type="button" id="download-output">Download</button>
+                    <a id="prepared-download-link" class="prepared-download-link" hidden>Ready</a>
+                </div>
+
+                <div class="panel-title">Import</div>
+                <input id="import-file" type="file" accept=".json,.js,.txt,.png,image/png">
+                <textarea id="import-input" rows="5" spellcheck="false"
+                    placeholder="Paste JSON, JS snippet, or token text"></textarea>
+                <button type="button" id="import-input-button">Import Text</button>
+            </aside>
+        </main>
+    </div>
+
+    <script src="../js/Constants.js"></script>
+    <script src="../js/LevelTokens.js?v=20260602-png2"></script>
+    <script src="../js/RenderConfig.js"></script>
+    <script src="../js/VisualLogic.js"></script>
+    <script src="../js/LevelLoader.js?v=20260602-png2"></script>
+    <script src="editor.js?v=20260602-png2"></script>
+</body>
+
+</html>

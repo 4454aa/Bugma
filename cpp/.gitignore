@@ -1,0 +1,9 @@
+# Build outputs (keep .gitkeep for directory structure)
+build/*
+!build/.gitkeep
+
+# Generated files from solver campaigns
+generated/
+logs/
+banmen_save_import.json
+banmen_save_import.js

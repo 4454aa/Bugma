@@ -2,6 +2,7 @@
 
 // 1. 初始化核心模块
 const gameState = new GameState();
+var ui;
 const saveSystem = new SaveSystem(); // 存档系统
 
 const visualLogic = new VisualLogic(gameState);
@@ -11,7 +12,6 @@ const levelLoader = new LevelLoader(gameState);
 const renderer = new Renderer(gameState, 'gameCanvas');
 
 // [新增] UI 管理器变量
-let ui;
 
 // 2. 页面加载完成后初始化 UI
 window.onload = function () {
@@ -122,11 +122,13 @@ window.updateFavicon = updateFavicon;
 window.loadAndRunLevel = function (levelId, colorOverride, levelData) {
      window.clearReplayState();
     // 加载数据
+    let loaded = false;
     if (levelData) {
-        levelLoader.loadCustomLevel(levelData);
+        loaded = levelLoader.loadCustomLevel(levelData, levelId);
     } else {
-        levelLoader.loadLevel(levelId);
+        loaded = levelLoader.loadLevel(levelId);
     }
+    if (!loaded) return false;
 
     // 处理变色关卡逻辑 (61-67)
     if (colorOverride > 0) {
@@ -145,6 +147,7 @@ window.loadAndRunLevel = function (levelId, colorOverride, levelData) {
     // 更新网页图标为当前形态
     updateFavicon(gameState.playerForm);
     console.log(`Game started: Level ${levelId}, Color: ${gameState.colorTheme}`);
+    return true;
 };
 
 // 用于重置当前关卡 (R键或菜单重试)
@@ -252,7 +255,8 @@ window.addEventListener('keydown', (e) => {
 window.startReplay = function(levelId, colorOverride, replayStr, levelData) {
     // 1. 加载关卡 
     // (这会自动调用 clearReplayState，把 isReplayMode 设为 false)
-    window.loadAndRunLevel(levelId, colorOverride, levelData);
+    const loaded = window.loadAndRunLevel(levelId, colorOverride, levelData);
+    if (!loaded) return false;
     
     // 2. [关键] 重新开启回放模式
     gameState.isReplayMode = true;
@@ -263,6 +267,7 @@ window.startReplay = function(levelId, colorOverride, replayStr, levelData) {
     window.toggleReplayPause(false); 
     
     console.log("Replay started sequence.");
+    return true;
 };
 
 // 切换 播放/暂停
@@ -361,11 +366,11 @@ if (DEBUG_MOYOU) {
         const y = (e.clientY - rect.top) * scaleY;
 
         // 转换为逻辑网格 (16px per grid)
-        const gridX = Math.floor(x / 16);
-        // Canvas Y=0 is Top, but logic Y=0 is Bottom (13-y)
-        const gridY = 13 - Math.floor(y / 16);
+        const gridX = Math.floor(x / gameState.tileSize);
+        // Canvas Y=0 is top, logic Y=0 is bottom.
+        const gridY = gameState.gridHeight - 1 - Math.floor(y / gameState.tileSize);
 
-        if (gridX >= 0 && gridX < 14 && gridY >= 0 && gridY < 14) {
+        if (gameState.inBounds(gridX, gridY)) {
             const id = gameState.gridForeground[gridX][gridY];
             const moyou = gameState.gridTexture[gridX][gridY];
 
@@ -388,18 +393,4 @@ if (DEBUG_MOYOU) {
     });
     // --- Game.js 结尾处添加 ---
 
-document.getElementById('gameCanvas').addEventListener('mousedown', (e) => {
-    if (ui.appState !== 'HANDBOOK') return;
-
-    const rect = e.target.getBoundingClientRect();
-    const scaleX = e.target.width / rect.width;
-    const scaleY = e.target.height / rect.height;
-
-    // 计算 Canvas 坐标
-    const canvasX = (e.clientX - rect.left) * scaleX;
-    const canvasY = (e.clientY - rect.top) * scaleY;
-
-    // 调用 UI 处理逻辑
-    ui.handleHandbookMouse(canvasX, canvasY);
-});
 }

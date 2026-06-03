@@ -84,7 +84,7 @@ class BattleLogic {
             (this.state.gridBuffer[bx][hpy] > 100) &&
             (this.state.gridBuffer[bx][hpy] < 200)
         ) {
-            if (hpy < 13) {
+            if (hpy < this.state.lastY()) {
                 // 检查连通性 (103 下面是 10x)
                 let currentPrefix = Math.floor(this.state.gridBuffer[bx][hpy] / 10);
                 let nextPrefix = Math.floor(this.state.gridBuffer[bx][hpy + 1] / 10);
@@ -207,7 +207,7 @@ class BattleLogic {
             (this.state.gridBuffer[px][hpy] > 100) &&
             (this.state.gridBuffer[px][hpy] < 200)
         ) {
-            if (hpy < 13) {
+            if (hpy < this.state.lastY()) {
                 let currentPrefix = Math.floor(this.state.gridBuffer[px][hpy] / 10);
                 let nextPrefix = Math.floor(this.state.gridBuffer[px][hpy + 1] / 10);
                 if (currentPrefix === nextPrefix) {
@@ -294,7 +294,7 @@ class BattleLogic {
         let fueruretsu = -1;
         let hpy = this.battley + 1;
 
-        while (hpy <= 13) {
+        while (hpy <= this.state.lastY()) {
             let id = this.state.gridBuffer[this.battlex][hpy];
 
             // 遇到阻挡块 (131)
@@ -406,7 +406,7 @@ class BattleLogic {
                 }
 
                 // 检查是否继续循环 (如果是满血3，且下一格也是同类型)
-                if (hpy < 13 && (id % 10 === 3) && (type === Math.floor(this.state.gridBuffer[px][hpy + 1] / 10))) {
+                if (hpy < this.state.lastY() && (id % 10 === 3) && (type === Math.floor(this.state.gridBuffer[px][hpy + 1] / 10))) {
                     hpy++;
                     continue;
                 }
@@ -427,12 +427,12 @@ class BattleLogic {
                 } else if (type === 12) {
                     this.state.gridBuffer[px][hpy] = 0; // 消失
                     // 移到右边
-                    if (px < 13 && this.state.gridBuffer[px + 1][hpy] === 0) {
+                    if (px < this.state.lastX() && this.state.gridBuffer[px + 1][hpy] === 0) {
                         this.state.gridBuffer[px + 1][hpy] = id - 10;
                     }
                 }
 
-                if (hpy < 13 && (id % 10 === 3) && (type === Math.floor(this.state.gridBuffer[px][hpy + 1] / 10))) {
+                if (hpy < this.state.lastY() && (id % 10 === 3) && (type === Math.floor(this.state.gridBuffer[px][hpy + 1] / 10))) {
                     hpy++;
                     continue;
                 }
@@ -482,13 +482,13 @@ class BattleLogic {
     // 核心机制：交换 (Swap)。扫描敌人血条存入缓存，然后根据玩家血条重写敌人血条，反之亦然。
     mechanicRed_Complex(ex, ey) {
         // 1. 扫描敌人血条 -> 存入 akaheartkioku
-        let akaheartkioku = new Array(14).fill(0);
+        let akaheartkioku = new Array(this.state.gridHeight).fill(0);
         let akaheartichi = 0; // 状态机：0=初始, 1=10x, 2=11x, 3=12x, 4=131
         let hpy = ey;
 
         while (true) {
             hpy++;
-            if (hpy >= 14) break;
+            if (hpy >= this.state.gridHeight) break;
             let id = this.state.gridForeground[ex][hpy]; // 读原始数据
 
             if (id < 101 || id > 131) break; // 不是血条
@@ -527,7 +527,7 @@ class BattleLogic {
 
         while (true) {
             hpy++;
-            if (hpy >= 14) break;
+            if (hpy >= this.state.gridHeight) break;
             let id = this.state.gridForeground[px][hpy];
             if (id < 101 || id > 131) break;
 
@@ -564,7 +564,7 @@ class BattleLogic {
         hpy = py;
         while (true) {
             hpy++;
-            if (hpy >= 14 || this.state.gridBuffer[px][hpy] !== 0) break; // 确保不覆盖
+            if (hpy >= this.state.gridHeight || this.state.gridBuffer[px][hpy] !== 0) break; // 确保不覆盖
 
             let id = akaheartkioku[hpy];
             if (id === 0) break;
@@ -605,7 +605,7 @@ class BattleLogic {
         let hpy = ey;
         while (true) {
             hpy++;
-            if (hpy >= 14) break;
+            if (hpy >= this.state.gridHeight) break;
 
             // 读取原始数据 (Foreground)
             let id = this.state.gridForeground[ex][hpy];
@@ -648,7 +648,7 @@ class BattleLogic {
         akaheartichi = 0; // 重置状态机
         while (true) {
             hpy++;
-            if (hpy >= 14) break;
+            if (hpy >= this.state.gridHeight) break;
 
             let id = this.state.gridForeground[px][hpy];
 
@@ -741,9 +741,9 @@ class BattleLogic {
             targetY_Enemy++;
 
             // 只要没到底(14)，就尝试填充
-            if (targetY_Player >= 14) break;
+            if (targetY_Player >= this.state.gridHeight) break;
             // 注意：这里没有单独检查 Enemy 越界，因为原逻辑也没检查，我们加个保险
-            let enemyOutOfBounds = (targetY_Enemy >= 14);
+            let enemyOutOfBounds = (targetY_Enemy >= this.state.gridHeight);
 
             // --- 重建主角侧 ---
             if (akaheartichi === 30) { // 131 类型
@@ -817,7 +817,7 @@ class BattleLogic {
 
         while (true) {
             hpy++;
-            if (hpy >= 14) break;
+            if (hpy >= this.state.gridHeight) break;
             let id = this.state.gridBuffer[px][hpy]; // 读 Buffer
             if (id < 101 || id > 123) break; // 只处理普通血条
 

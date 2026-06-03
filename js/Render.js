@@ -4,16 +4,23 @@ class Renderer {
         this.canvas = document.getElementById(canvasId);
         this.ctx = this.canvas.getContext('2d');
         this.images = {};
-
-        // 调试标记
         this.isReady = false;
+        this.lastFrameTime = performance.now();
+        this.torchAnimTime = 0;
+        this.lightCanvas = document.createElement('canvas');
+        this.lightCtx = this.lightCanvas.getContext('2d');
+
+        // sun.cs pulse state
+        this.sunKosa = 3;
+        this.sunJitterX = 0;
+        this.sunJitterY = 0;
+        this.sunWarizan = 0.5;
+        this.sunAlpha = 0;
 
         const imageKeys = Object.keys(IMAGES);
         const total = imageKeys.length;
         let loadedCount = 0;
         let errorCount = 0;
-
-        console.log(`[Render] 开始加载 ${total} 张图片...`);
 
         imageKeys.forEach(key => {
             const src = IMAGES[key];
@@ -21,321 +28,409 @@ class Renderer {
 
             img.onload = () => {
                 loadedCount++;
-                // console.log(`[Render] Loaded: ${src}`);
-                if (loadedCount + errorCount === total) {
-                    this.finishLoading();
-                }
+                if (loadedCount + errorCount === total) this.finishLoading();
             };
 
             img.onerror = () => {
                 errorCount++;
-                console.error(`[Render] ❌ 图片加载失败: ${src} (Key: ${key})`);
-                // 即使失败也继续，防止卡死，虽然画面会缺东西
-                if (loadedCount + errorCount === total) {
-                    this.finishLoading();
-                }
+                console.error(`[Render] Failed to load image: ${src} (${key})`);
+                if (loadedCount + errorCount === total) this.finishLoading();
             };
 
             img.src = src;
-            // 建立映射：既可以通过 key (IMAGES.MAIN) 访问，也可以通过 src 字符串访问
             this.images[key] = img;
             this.images[src] = img;
         });
     }
 
     finishLoading() {
-        console.log("[Render] 资源加载队列结束。启动渲染。");
         this.isReady = true;
         this.draw();
     }
 
+    syncCanvasSize(width, height) {
+        if (this.canvas.width !== width) this.canvas.width = width;
+        if (this.canvas.height !== height) this.canvas.height = height;
+
+        const container = this.canvas.parentElement;
+        if (container) {
+            const ratio = width / height;
+            const maxPixelWidth = Math.min(672, width * 3);
+            container.style.aspectRatio = `${width} / ${height}`;
+            container.style.width = `min(${maxPixelWidth}px, 94vw, calc(94vh * ${ratio}))`;
+        }
+    }
+
     draw() {
         if (!this.isReady) return;
-        // 清除画布
 
+        const now = performance.now();
+        const dt = Math.min((now - this.lastFrameTime) / 1000, 0.05);
+        this.lastFrameTime = now;
 
-        if (ui && ui.appState === 'HANDBOOK') {
+        if (typeof ui !== 'undefined' && ui && ui.appState === 'HANDBOOK') {
+            this.syncCanvasSize(224, 224);
             this.ctx.clearRect(0, 0, 224, 224);
             this.drawHandbook();
-            return; // 彻底隔离，不执行下方游戏逻辑
-        }
-        // 1. 画全屏背景 (Yuka)
-        const color = this.state.colorTheme;
-        const bgKey = (color === 0) ? 'assets/yuka.png' : `assets/yuka${color}.png`;
-        const bgImg = this.images[bgKey] || this.images['assets/yuka.png'];
-        if (bgImg) this.ctx.drawImage(bgImg, 0, 0);
-        else {
-            this.ctx.fillStyle = '#222';
-            this.ctx.fillRect(0, 0, 224, 224);
+            return;
         }
 
-        // 更新 Tick
+        if (this.isMenuCanvasState()) {
+            this.syncCanvasSize(224, 224);
+            this.setPixelMode();
+            this.ctx.clearRect(0, 0, 224, 224);
+            this.drawBackground();
+            return;
+        }
+
+        this.syncCanvasSize(this.state.canvasWidth(), this.state.canvasHeight());
+        this.setPixelMode();
+        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+
+        this.drawBackground();
+
         this.state.animTick = (this.state.animTick + 1) % 60;
         const tick = this.state.animTick;
 
-        // 2. 遍历网格
-        for (let x = 0; x < 14; x++) {
-            for (let y = 0; y < 14; y++) {
-                const drawX = x * 16;
-                const drawY = (13 - y) * 16;
+        this.torchAnimTime = (this.torchAnimTime + dt) % 60;
+        this.drawBoard(tick);
+        this.updateLight(dt);
+        this.drawLighting(tick);
+        this.drawTorches(tick);
+        this.drawCorpse();
+        this.drawEffects();
+    }
 
-                // --- A. 背景层 (Triggers) ---
-                const bgId = this.state.gridBackground[x][y];
-                if (bgId === 2 || bgId === 3) {
-                    const conf = SPRITE_CONFIG.TRIGGERS.getSprite(bgId, this.state.colorTheme);
-                    if (conf) this.drawSprite(conf, drawX, drawY);
-                }
-                else if (bgId >= 11 && bgId <= 16) {
-                    const conf = SPRITE_CONFIG.COLOR_TRIGGERS.getSprite(bgId);
-                    if (conf) this.drawSprite(conf, drawX, drawY);
-                }
+    isMenuCanvasState() {
+        if (typeof ui === 'undefined' || !ui) return false;
+        return ['TITLE', 'SELECT', 'IO', 'CREDITS'].includes(ui.appState);
+    }
 
-                // --- B. 前景层 (Foreground) ---
-                const id = this.state.gridForeground[x][y];
-                if (id === 0) continue;
-                // Render.js -> draw() 内部循环
+    setPixelMode() {
+        this.ctx.imageSmoothingEnabled = false;
+        this.ctx.mozImageSmoothingEnabled = false;
+        this.ctx.webkitImageSmoothingEnabled = false;
+        this.ctx.msImageSmoothingEnabled = false;
+    }
 
-                // --- 1. 墙壁与障碍物 (ID 2 普通墙 / ID 7 栅栏 / ID 8 特殊墙) ---
-                if (id === 2 || id === 7 || id === 8) {
-                    const moyou = this.state.gridTexture[x][y];
+    drawBackground() {
+        const color = this.state.colorTheme;
+        const bgKey = color === 0 ? 'assets/yuka.png' : `assets/yuka${color}.png`;
+        const bgImg = this.images[bgKey] || this.images['assets/yuka.png'];
 
-                    // 第一层：画主体 (Body)
-                    // getBody 内部已经处理了 moyou 26 的特殊贴图切换
-                    if (SPRITE_CONFIG.WALLS.getBody) {
-                        const bodyConf = SPRITE_CONFIG.WALLS.getBody(
-                            this.state.colorTheme,
-                            moyou,
-                            x, y
-                        );
-                        this.drawSprite(bodyConf, drawX, drawY);
-                    }
+        if (!bgImg) {
+            this.ctx.fillStyle = '#222';
+            this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+            return;
+        }
 
-                    // 第二层：画线框 (Overlay)
-                    // moyou 26 在 RenderConfig 里会返回 null，所以这里安全
-                    if (moyou > 0 && SPRITE_CONFIG.WALLS.getOverlay) {
-                        const overlayConf = SPRITE_CONFIG.WALLS.getOverlay(
-                            this.state.colorTheme,
-                            moyou
-                        );
-                        this.drawSprite(overlayConf, drawX, drawY);
-                    }
-
-                    // 第三层：ID 8 特殊叠加 (保持不变)
-                    if (id === 8) {
-                        const bgId = this.state.gridBackground[x][y];
-                        if (bgId > 0 && bgId < 200) {
-                            const decalConf = SPRITE_CONFIG.HEARTS.getSprite(bgId, tick);
-                            if (decalConf) this.drawSprite(decalConf, drawX, drawY);
-                        }
-                    }
-                }
-
-                // --- 2. 锁与开关 (ID 400+) ---
-                // 这里我们保留一个简单的逻辑：直接用 Body 逻辑画成实心方块
-                else if (id >= 400) {
-                    // 锁通常也是固定的方块，我们强制让它用 moyou 26 的画法
-                    // 但颜色可能需要根据 ID 偏移
-                    let lockColor = this.state.colorTheme;
-                    if (id >= 401 && id <= 405) lockColor = id - 400;
-                    else if (id === 416 || id === 419) lockColor = 6;
-
-                    // 借用 getBody 但强制传入 26 以获得那个特殊的方块贴图
-                    const lockConf = SPRITE_CONFIG.WALLS.getBody(lockColor, 26, x, y);
-                    this.drawSprite(lockConf, drawX, drawY);
-                }
-                // 2. 主角 (活)
-                else if (id === 1) {
-                    // 【关键】如果死透了(Status 2)，这里不画，交给后面的尸体逻辑画
-                    if (this.state.gameStatus !== 2) {
-                        const conf = SPRITE_CONFIG.HEROINE.getSprite(
-                            this.state.playerForm, this.state.player.dir, tick
-                        );
-                        this.drawSprite(conf, drawX, drawY);
-                    }
-                }
-                // 3. 怪物 (e系列 & g系列)
-                else if (id >= 11 && id <= 26) {
-                    // 逻辑：ID 16(变色龙) 和 21-26(魔像) 用 COLOR 表
-                    // ID 11-15(普通) 用 SIMPLE 表
-                    if (id === 16 || (id >= 21 && id <= 26)) {
-                        const conf = SPRITE_CONFIG.ENEMIES.COLOR.getSprite(id, this.state.colorTheme, tick);
-                        this.drawSprite(conf, drawX, drawY);
-                    }
-                    else if (id===18){
-                        const conf = SPRITE_CONFIG.ENEMIES.COLOR.getSprite(25,this.state.colorTheme, tick);
-                        this.drawSprite(conf, drawX, drawY);
-                    }
-                    else if (id===17){
-                        const conf = SPRITE_CONFIG.ENEMIES.COLOR.getSprite(16,this.state.colorTheme, tick);
-                        this.drawSprite(conf, drawX, drawY);
-                    }
-                    else if (this.state.colorTheme !== 0) {
-                        const conf = SPRITE_CONFIG.ENEMIES.SIMPLE.getSprite(id, tick);
-                        this.drawSprite(conf, drawX, drawY);
-                    }
-                    else {
-                        const conf = SPRITE_CONFIG.ENEMIES.SIMPLE.getSprite(id, tick);
-                        this.drawSprite(conf, drawX, drawY);
-                    }
-                }
-                // 4. 血条 (100-131)
-                else if (id >= 100 && id <= 131) {
-                    const conf = SPRITE_CONFIG.HEARTS.getSprite(id, tick);
-                    if (conf) this.drawSprite(conf, drawX, drawY);
-                }
-                // 5. 箱子/石头 (400+)
-                // else if (id >= 400) {
-                //     const conf = SPRITE_CONFIG.BOXES.getSprite(this.state.colorTheme);
-                //     this.drawSprite(conf, drawX, drawY);
-                // }
+        for (let y = 0; y < this.canvas.height; y += bgImg.height) {
+            for (let x = 0; x < this.canvas.width; x += bgImg.width) {
+                this.ctx.drawImage(bgImg, x, y);
             }
         }
+    }
 
-        // 3. 画主角尸体 (覆盖层)
-        // 只有当游戏输了，且主角 ID 已经被逻辑清除时才需要补画？
-        // 或者强制补画在最后位置
-        if (this.state.gameStatus === 2) {
-            const px = this.state.player.x;
-            const py = this.state.player.y;
-            const corpseConf = SPRITE_CONFIG.DEAD_BODY.getSprite(
-                1,
-                this.state.playerForm,
-                this.state.player.dir,
-                false // 主角死通常不是被压死(isCrushed=false)
-            );
-            if (corpseConf) this.drawSprite(corpseConf, px * 16, (13 - py) * 16);
+    drawBoard(tick) {
+        this.state.forEachCell((x, y) => {
+            const drawX = this.state.drawX(x);
+            const drawY = this.state.drawY(y);
+            const bgId = this.state.gridBackground[x][y];
+
+            this.drawBackgroundTile(bgId, drawX, drawY);
+        });
+
+        this.drawObjectShadows();
+
+        this.state.forEachCell((x, y) => {
+            const drawX = this.state.drawX(x);
+            const drawY = this.state.drawY(y);
+            this.drawForegroundTile(x, y, drawX, drawY, tick);
+        });
+    }
+
+    drawObjectShadows() {
+        const playerCenter = this.getPlayerLightCenter();
+
+        this.state.forEachCell((x, y) => {
+            const id = this.state.gridForeground[x][y];
+            const alpha = this.getObjectShadowAlpha(id);
+            if (alpha <= 0) return;
+
+            const cx = this.state.drawX(x) + TILE_SIZE / 2;
+            const cy = this.state.drawY(y) + TILE_SIZE / 2;
+            const dx = cx - playerCenter.x;
+            const dy = cy - playerCenter.y;
+            const len = Math.hypot(dx, dy) || 1;
+            const offsetX = (dx / len) * 3;
+            const offsetY = (dy / len) * 3;
+
+            this.ctx.save();
+            this.ctx.fillStyle = `rgba(0, 0, 0, ${alpha})`;
+            this.ctx.translate(this.state.drawX(x) + offsetX, this.state.drawY(y) + offsetY);
+            this.ctx.transform(1, 0, -0.18 * Math.sign(dx || 1), 0.42, 0, TILE_SIZE * 0.72);
+            this.ctx.fillRect(3, 2, TILE_SIZE - 6, TILE_SIZE - 4);
+            this.ctx.restore();
+        });
+    }
+
+    getObjectShadowAlpha(id) {
+        if (id >= 11 && id <= 26) return 0.22;
+        if (id >= 400) return 0.26;
+        if (id === 9) return 0.2;
+        return 0;
+    }
+
+    drawBackgroundTile(bgId, drawX, drawY) {
+        if (bgId === 2 || bgId === 3) {
+            this.drawSprite(SPRITE_CONFIG.TRIGGERS.getSprite(bgId, this.state.colorTheme), drawX, drawY);
+        } else if (bgId >= 11 && bgId <= 16) {
+            this.drawSprite(SPRITE_CONFIG.COLOR_TRIGGERS.getSprite(bgId), drawX, drawY);
+        } else if (bgId === 999) {
+            this.ctx.save();
+            this.ctx.globalAlpha = 0.25;
+            this.ctx.fillStyle = '#000';
+            this.ctx.fillRect(drawX, drawY, TILE_SIZE, TILE_SIZE);
+            this.ctx.restore();
+        }
+    }
+
+    drawForegroundTile(x, y, drawX, drawY, tick) {
+        const id = this.state.gridForeground[x][y];
+        if (id === 0) return;
+
+        if (id === 2 || id === 7 || id === 8) {
+            const moyou = this.state.gridTexture[x][y] || 0;
+            this.drawSprite(SPRITE_CONFIG.WALLS.getSprite(this.state.colorTheme, moyou), drawX, drawY);
+
+            if (id === 8) {
+                const bgId = this.state.gridBackground[x][y];
+                if (bgId > 0 && bgId < 200) {
+                    this.drawSprite(SPRITE_CONFIG.HEARTS.getSprite(bgId, tick), drawX, drawY);
+                }
+            }
+        } else if (id >= 400) {
+            let lockColor = this.state.colorTheme;
+            if (id >= 401 && id <= 405) lockColor = id - 400;
+            else if (id === 416 || id === 419) lockColor = 6;
+            this.drawSprite(SPRITE_CONFIG.WALLS.getSprite(lockColor, 26), drawX, drawY);
+        } else if (id === 1) {
+            if (this.state.gameStatus !== 2) {
+                this.drawSprite(SPRITE_CONFIG.HEROINE.getSprite(this.state.playerForm, this.state.player.dir, tick), drawX, drawY);
+            }
+        } else if (id >= 11 && id <= 26) {
+            if (id === 16 || (id >= 21 && id <= 26)) {
+                this.drawSprite(SPRITE_CONFIG.ENEMIES.COLOR.getSprite(id, this.state.colorTheme, tick), drawX, drawY);
+            } else if (id === 18) {
+                this.drawSprite(SPRITE_CONFIG.ENEMIES.COLOR.getSprite(25, this.state.colorTheme, tick), drawX, drawY);
+            } else if (id === 17) {
+                this.drawSprite(SPRITE_CONFIG.ENEMIES.COLOR.getSprite(16, this.state.colorTheme, tick), drawX, drawY);
+            } else {
+                this.drawSprite(SPRITE_CONFIG.ENEMIES.SIMPLE.getSprite(id, tick), drawX, drawY);
+            }
+        } else if (id >= 100 && id <= 131) {
+            this.drawSprite(SPRITE_CONFIG.HEARTS.getSprite(id, tick), drawX, drawY);
+        }
+    }
+
+    updateLight(dt) {
+        const target = this.state.gameStatus === 2 ? 0 : 0.7;
+        if (this.state.lightLevel < target) {
+            this.state.lightLevel = Math.min(target, this.state.lightLevel + dt * 2);
+        } else if (this.state.lightLevel > target) {
+            this.state.lightLevel = Math.max(target, this.state.lightLevel - dt);
         }
 
-        // 4. 画特效 (爆炸+怪物尸体)
+        // sun.cs pulse (triangular wave: 0→1→1→0, repeat every 3*warizan seconds)
+        this.sunKosa += dt / this.sunWarizan;
+        if (this.sunKosa >= 3) {
+            this.sunJitterX = (Math.random() - 0.5) * 2 * 50;
+            this.sunJitterY = (Math.random() - 0.5) * 2 * 10;
+            this.sunKosa = 0;
+        }
+        if (this.sunKosa > 2) {
+            this.sunAlpha = (3 - this.sunKosa) / 8;
+        } else if (this.sunKosa > 1) {
+            this.sunAlpha = 1 / 8;
+        } else {
+            this.sunAlpha = this.sunKosa / 8;
+        }
+    }
+
+    drawLighting(tick) {
+        if (this.state.lightLevel <= 0) return;
+
+        const lightCtx = this.prepareLightCanvas();
+        const ambientAlpha = 0.32 * this.state.lightLevel;
+        lightCtx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        lightCtx.fillStyle = `rgba(0, 0, 0, ${ambientAlpha})`;
+        lightCtx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+        lightCtx.save();
+        lightCtx.globalCompositeOperation = 'destination-out';
+        this.drawPlayerSight(lightCtx);
+
+        this.state.torches.forEach(torch => {
+            const centerX = this.state.drawX(torch.x) + TILE_SIZE / 2;
+            const centerY = this.state.drawY(torch.y) + TILE_SIZE / 2;
+            const pulse = this.getTorchPulse(torch, 0.018);
+            this.drawLightHole(lightCtx, centerX, centerY, TILE_SIZE * 3.6 * pulse, 0.68);
+        });
+        lightCtx.restore();
+
+        this.ctx.drawImage(this.lightCanvas, 0, 0);
+    }
+
+    prepareLightCanvas() {
+        if (this.lightCanvas.width !== this.canvas.width) this.lightCanvas.width = this.canvas.width;
+        if (this.lightCanvas.height !== this.canvas.height) this.lightCanvas.height = this.canvas.height;
+        return this.lightCtx;
+    }
+
+    drawPlayerSight(lightCtx) {
+        const center = this.getPlayerLightCenter();
+        // Main light hole (ugokulight equivalent)
+        this.drawLightHole(lightCtx, center.x, center.y, TILE_SIZE * 5.0, 0.55);
+        // Sun pulse (sun.cs equivalent) - subtle pulsing extra light
+        if (this.sunAlpha > 0.004) {
+            this.drawLightHole(lightCtx, center.x, center.y, TILE_SIZE * 1.8, this.sunAlpha * 4);
+        }
+    }
+
+    drawLightHole(lightCtx, centerX, centerY, radius, strength) {
+        const gradient = lightCtx.createRadialGradient(centerX, centerY, 0, centerX, centerY, radius);
+        gradient.addColorStop(0, `rgba(0, 0, 0, ${strength})`);
+        gradient.addColorStop(0.55, `rgba(0, 0, 0, ${strength * 0.48})`);
+        gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+        lightCtx.fillStyle = gradient;
+        lightCtx.fillRect(centerX - radius, centerY - radius, radius * 2, radius * 2);
+    }
+
+    getTorchPulse(torch, amplitude) {
+        const phaseOffset = torch.side === 'right' ? 0.65 : 0;
+        return 1 + Math.sin(this.torchAnimTime * Math.PI * 0.85 + phaseOffset) * amplitude;
+    }
+
+    getPlayerLightCenter() {
+        return {
+            x: this.state.drawX(this.state.player.x) + TILE_SIZE / 2 + this.sunJitterX,
+            y: this.state.drawY(this.state.player.y) + TILE_SIZE / 2 + this.sunJitterY
+        };
+    }
+
+    drawTorches(tick) {
+        this.state.torches.forEach(torch => {
+            const x = this.state.drawX(torch.x);
+            const y = this.state.drawY(torch.y);
+            const flamePhase = Math.floor(this.torchAnimTime / 0.3) % 3;
+            const wobbleSequence = torch.side === 'right' ? [1, 0, -1] : [-1, 0, 1];
+            this.drawTorch(x, y, wobbleSequence[flamePhase]);
+        });
+    }
+
+    drawTorch(x, y, flameOffsetX) {
+        const base = SPRITE_CONFIG.TORCHES.getBaseSprite(this.state.colorTheme);
+        const flame = SPRITE_CONFIG.TORCHES.getFlameSprite(this.state.colorTheme);
+        this.drawSprite(base, x, y);
+
+        const img = flame && this.images[flame.img];
+        if (!img) return;
+
+        this.ctx.drawImage(
+            img,
+            flame.x, flame.y, TILE_SIZE, 10,
+            x + flameOffsetX, y, TILE_SIZE, 10
+        );
+    }
+
+    drawCorpse() {
+        if (this.state.gameStatus !== 2) return;
+
+        const px = this.state.player.x;
+        const py = this.state.player.y;
+        const corpseConf = SPRITE_CONFIG.DEAD_BODY.getSprite(
+            1,
+            this.state.playerForm,
+            this.state.player.dir,
+            false
+        );
+        this.drawSprite(corpseConf, this.state.drawX(px), this.state.drawY(py));
+    }
+
+    drawEffects() {
         for (let i = this.state.effects.length - 1; i >= 0; i--) {
             const fx = this.state.effects[i];
-            const elapsed = Date.now() - fx.startTime;
+            const frameIdx = Math.floor((Date.now() - fx.startTime) / 100);
+            const drawX = this.state.drawX(fx.x);
+            const drawY = this.state.drawY(fx.y);
 
-            const FRAME_DURATION = 100;
-            const ANIM_LEN = 2;
-            const frameIdx = Math.floor(elapsed / FRAME_DURATION);
-
-            const drawX = fx.x * 16;
-            const drawY = (13 - fx.y) * 16;
-
-            if (frameIdx < ANIM_LEN) {
-                // A. 画尸体 (垫底)
+            if (frameIdx < 2) {
                 if (fx.type === 'DIE') {
-                    const corpseConf = SPRITE_CONFIG.DEAD_BODY.getSprite(
+                    this.drawSprite(SPRITE_CONFIG.DEAD_BODY.getSprite(
                         fx.id || 11,
                         fx.form || 1,
                         0,
                         fx.isCrushed,
                         fx.color || 0
-                    );
-                    if (corpseConf) this.drawSprite(corpseConf, drawX, drawY);
+                    ), drawX, drawY);
                 }
 
-                // B. 画爆炸
-                if (SPRITE_CONFIG.EXPLOSION && SPRITE_CONFIG.EXPLOSION.getSprite) {
-                    const animConf = SPRITE_CONFIG.EXPLOSION.getSprite(
-                        fx.form,
-                        fx.isCrushed,
-                        frameIdx
-                    );
-                    if (animConf) this.drawSprite(animConf, drawX, drawY);
-                }
-
+                this.drawSprite(SPRITE_CONFIG.EXPLOSION.getSprite(fx.form, fx.isCrushed, frameIdx), drawX, drawY);
             } else {
                 this.state.effects.splice(i, 1);
             }
         }
     }
-// Renderer.js 中的 drawHandbook
-drawHandbook() {
-    // 1. 彻底禁用平滑处理
-    this.ctx.imageSmoothingEnabled = false;
-    this.ctx.mozImageSmoothingEnabled = false;
-    this.ctx.webkitImageSmoothingEnabled = false;
-    this.ctx.msImageSmoothingEnabled = false;
 
-    const tick = this.state.animTick;
-    this.state.animTick = (this.state.animTick + 1) % 60;
+    drawHandbook() {
+        this.setPixelMode();
+        const tick = this.state.animTick;
+        this.state.animTick = (this.state.animTick + 1) % 60;
 
-    // 绘制背景 (如果是 yuka.png，它也是 224x224)
-    const bgImg = this.images['assets/yuka.png'];
-    if (bgImg) this.ctx.drawImage(bgImg, 0, 0);
+        const bgImg = this.images['assets/yuka.png'];
+        if (bgImg) this.ctx.drawImage(bgImg, 0, 0);
 
-    this.ctx.save();
-    // 2. 放大 2 倍
-    this.ctx.scale(2, 2); 
+        this.ctx.save();
+        this.ctx.scale(2, 2);
 
-    HB_LAYOUT.forEach((row, rIdx) => {
-        row.forEach((item, cIdx) => {
-            if (!item) return;
+        HB_LAYOUT.forEach((row, rIdx) => {
+            row.forEach((item, cIdx) => {
+                if (!item) return;
 
-            // 3. 紧密排列：逻辑网格是 16x16，放大后就是 32x32
-            // 7列 * 16px(logic) = 112px(logic) -> 2倍后 224px (物理)
-            // 5行 * 16px(logic) = 80px(logic) -> 2倍后 160px (物理)
-            const x = cIdx * 16; 
-            const y = rIdx * 16;
+                const x = cIdx * TILE_SIZE;
+                const y = rIdx * TILE_SIZE;
+                let conf = null;
 
-            let conf = null;
-            // 获取配置逻辑 (保持不变)
-            if (item.id === 1) conf = SPRITE_CONFIG.HEROINE.getSprite(item.f, 3, tick);
-            else if (item.id >= 100 && item.id <= 131) conf = SPRITE_CONFIG.HEARTS.getSprite(item.id, tick);
-            else if (item.id >= 11 && item.id <= 26 && !item.t) {
-                let mc = (item.id === 21)?1:(item.id === 22)?2:(item.id === 23)?3:(item.id === 24)?4:(item.id === 25)?6:0;
-                conf = (item.id === 16 || (item.id >= 21)) ? 
-                       SPRITE_CONFIG.ENEMIES.COLOR.getSprite(item.id, mc, tick) : 
-                       SPRITE_CONFIG.ENEMIES.SIMPLE.getSprite(item.id, tick);
-            } else if (item.t === 'f') conf = SPRITE_CONFIG.COLOR_TRIGGERS.getSprite(item.id);
-            else if (item.t === 't') conf = SPRITE_CONFIG.TRIGGERS.getSprite(item.id, 0);
+                if (item.id === 1) conf = SPRITE_CONFIG.HEROINE.getSprite(item.f, DIR.RIGHT, tick);
+                else if (item.id >= 100 && item.id <= 131) conf = SPRITE_CONFIG.HEARTS.getSprite(item.id, tick);
+                else if (item.id >= 11 && item.id <= 26 && !item.t) {
+                    const mc = (item.id === 21) ? 1 : (item.id === 22) ? 2 : (item.id === 23) ? 3 : (item.id === 24) ? 4 : (item.id === 25) ? 6 : 0;
+                    conf = (item.id === 16 || item.id >= 21)
+                        ? SPRITE_CONFIG.ENEMIES.COLOR.getSprite(item.id, mc, tick)
+                        : SPRITE_CONFIG.ENEMIES.SIMPLE.getSprite(item.id, tick);
+                } else if (item.t === 'f') conf = SPRITE_CONFIG.COLOR_TRIGGERS.getSprite(item.id);
+                else if (item.t === 't') conf = SPRITE_CONFIG.TRIGGERS.getSprite(item.id, 0);
 
-            if (conf) {
-                // 直接绘制在网格起始点，不偏移，实现“密铺”
                 this.drawSprite(conf, x, y);
-            }
 
-            // 4. 绘制选中框 (Logic 坐标)
-            if (ui.hbRow === rIdx && ui.hbCol === cIdx) {
-                this.ctx.strokeStyle = '#0f0';
-                this.ctx.lineWidth = 1;
-                // 绘制逻辑尺寸为 16x16 的边框
-                this.ctx.strokeRect(x, y, 16, 16);
-            }
+                if (ui.hbRow === rIdx && ui.hbCol === cIdx) {
+                    this.ctx.strokeStyle = '#0f0';
+                    this.ctx.lineWidth = 1;
+                    this.ctx.strokeRect(x, y, TILE_SIZE, TILE_SIZE);
+                }
+            });
         });
-    });
 
-    this.ctx.restore();
-}
-    // Render.js 底部
+        this.ctx.restore();
+    }
 
     drawSprite(conf, x, y) {
         if (!conf || !this.images[conf.img]) return;
 
-        // // 如果配置要求水平翻转 (flipH)
-        // if (conf.flipH) {
-        //     this.ctx.save(); // 保存当前状态
-
-        //     // 1. 将原点移动到目标格子的中心
-        //     // 假设格子大小是 16 (TILE_SIZE)
-        //     this.ctx.translate(x + 8, y + 8);
-
-        //     // 2. 执行水平镜像
-        //     this.ctx.scale(-1, 1);
-
-        //     // 3. 绘制图片 (坐标变为相对中心的 -8, -8)
-        //     this.ctx.drawImage(
-        //         this.images[conf.img],
-        //         conf.x, conf.y, 16, 16,
-        //         -8, -8, 16, 16
-        //     );
-
-        //     this.ctx.restore(); // 恢复状态
-        // } else 
-        {
-            // 正常绘制
-            this.ctx.drawImage(
-                this.images[conf.img],
-                conf.x, conf.y, 16, 16,
-                x, y, 16, 16
-            );
-        }
+        this.ctx.drawImage(
+            this.images[conf.img],
+            conf.x, conf.y, TILE_SIZE, TILE_SIZE,
+            x, y, TILE_SIZE, TILE_SIZE
+        );
     }
 }

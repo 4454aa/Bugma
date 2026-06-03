@@ -1,117 +1,132 @@
-// GameState.js
 class GameState {
     constructor() {
-        this.gridSize = 14;
-
-        // 双缓冲系统：Foreground 是当前帧，Buffer 是计算中的下一帧
-        this.gridForeground = this.createGrid();
-        this.gridBuffer = this.createGrid();
-        this.gridBackground = this.createGrid();
-        this.gridTexture = this.createGrid(); // moyou
+        this.tileSize = 16;
+        this.resizeGrid(14, 14);
 
         this.player = { x: 0, y: 0, dir: DIR.RIGHT };
 
-        // 游戏规则状态
-        this.playerForm = 2;   // 默认形态2（雪莉）
-        this.colorTheme = 0;   // spriteiro
-        this.isInvincible = 0; // fujimi
+        this.playerForm = 2;
+        this.colorTheme = 0;
+        this.isInvincible = 0;
 
-        // 游戏结果状态 (0:进行中, 1:胜, 2:负)
         this.gameStatus = 0;
-        // --- [新增] ---
-        this.effects = [];   // 存储爆炸对象:  现在: { x, y, startTime, type, form, isCrushed }
-        this.animTick = 0;   // 全局动画计时: 0~60 循环
-        this.currentStageId = "1"; // [新增] 记录当前关卡号
-        // --- [新增] 历史与记录 ---
-        this.history = [];      // 快照栈
-        this.stepCount = 0;     // 当前步数
-        this.replayString = ""; // 录像字符串 (UDLR)
-        this.MAX_HISTORY = 100; // 限制悔棋步数，防止内存无限膨胀
-        // [新增] 永久保存"第0步"的状态，不受 history 长度限制
+        this.effects = [];
+        this.animTick = 0;
+        this.currentStageId = "1";
+        this.currentLevelKey = "1";
+
+        this.history = [];
+        this.stepCount = 0;
+        this.replayString = "";
+        this.MAX_HISTORY = 100;
         this.initialSnapshot = null;
-        // [新增] 回放专用状态
+
         this.isReplayMode = false;
-        this.replayData = "";      // 这里的字符串 "UDRL..."
-        this.replayIndex = 0;      // 当前播放到第几个字符
-        this.replayTimer = null;   // 自动播放的计时器句柄
-        this.replaySpeed = 200;    // 播放速度 (ms/step)
+        this.replayData = "";
+        this.replayIndex = 0;
+        this.replayTimer = null;
+        this.replaySpeed = 200;
+
+        this.torches = [];
+        this.torchBackgroundCells = [];
+        this.lightLevel = 0;
+        this.viewVector = { dx: 1, dy: 0 };
     }
-    // --- [重构] 提取生成快照数据的逻辑 (私有辅助) ---
+
+    resizeGrid(width, height) {
+        this.gridWidth = Number.isInteger(width) && width > 0 ? width : 14;
+        this.gridHeight = Number.isInteger(height) && height > 0 ? height : 14;
+        this.gridSize = this.gridWidth === this.gridHeight ? this.gridWidth : Math.max(this.gridWidth, this.gridHeight);
+
+        this.gridForeground = this.createGrid();
+        this.gridBuffer = this.createGrid();
+        this.gridBackground = this.createGrid();
+        this.gridTexture = this.createGrid();
+        this.torches = [];
+        this.torchBackgroundCells = [];
+    }
+
+    createGrid(fill = 0) {
+        return Array.from({ length: this.gridWidth }, () => Array(this.gridHeight).fill(fill));
+    }
+
+    inBounds(x, y) {
+        return x >= 0 && x < this.gridWidth && y >= 0 && y < this.gridHeight;
+    }
+
+    lastX() {
+        return this.gridWidth - 1;
+    }
+
+    lastY() {
+        return this.gridHeight - 1;
+    }
+
+    forEachCell(callback) {
+        for (let x = 0; x < this.gridWidth; x++) {
+            for (let y = 0; y < this.gridHeight; y++) {
+                callback(x, y);
+            }
+        }
+    }
+
+    canvasWidth() {
+        return this.gridWidth * this.tileSize;
+    }
+
+    canvasHeight() {
+        return this.gridHeight * this.tileSize;
+    }
+
+    drawX(x) {
+        return x * this.tileSize;
+    }
+
+    drawY(y) {
+        return (this.gridHeight - 1 - y) * this.tileSize;
+    }
+
+    resetRuntimeStats() {
+        this.gameStatus = 0;
+        this.isInvincible = 0;
+        this.history = [];
+        this.stepCount = 0;
+        this.replayString = "";
+        this.effects = [];
+        this.animTick = 0;
+        this.lightLevel = 0;
+        this.viewVector = { dx: 1, dy: 0 };
+    }
+
+    _cloneGrid(grid) {
+        return grid.map(col => [...col]);
+    }
+
     _createSnapshotData() {
         return {
-            fg: this.gridForeground.map(row => [...row]),
-            bg: this.gridBackground.map(row => [...row]),
+            width: this.gridWidth,
+            height: this.gridHeight,
+            fg: this._cloneGrid(this.gridForeground),
+            bg: this._cloneGrid(this.gridBackground),
             player: { ...this.player },
             form: this.playerForm,
             color: this.colorTheme,
             invincible: this.isInvincible,
             status: this.gameStatus,
             steps: this.stepCount,
-            replay: this.replayString
+            replay: this.replayString,
+            viewVector: { ...this.viewVector }
         };
     }
-    createGrid() {
-        return Array(this.gridSize).fill(0).map(() => Array(this.gridSize).fill(0));
-    }
 
-    // 将 Buffer 的更改应用到主网格 (arumonoset)
-    syncBufferToMain() {
-        for (let x = 0; x < this.gridSize; x++) {
-            for (let y = 0; y < this.gridSize; y++) {
-                this.gridForeground[x][y] = this.gridBuffer[x][y];
-            }
+    _applySnapshot(snapshot) {
+        if (snapshot.width !== this.gridWidth || snapshot.height !== this.gridHeight) {
+            this.resizeGrid(snapshot.width || 14, snapshot.height || 14);
         }
-    }
 
-    // 将主网格复制到 Buffer (idougoset)
-    syncMainToBuffer() {
-        for (let x = 0; x < this.gridSize; x++) {
-            for (let y = 0; y < this.gridSize; y++) {
-                this.gridBuffer[x][y] = this.gridForeground[x][y];
-            }
-        }
-    }
-    // --- [新增] 保存快照 (Deep Copy) ---
-    saveSnapshot() {
-        // 深拷贝二维数组 (性能足够快)
-        const snapshot = {
-            fg: this.gridForeground.map(row => [...row]),
-            bg: this.gridBackground.map(row => [...row]),
-            // Buffer 和 Texture 不需要存，因为它们是推导出来的
-
-            player: { ...this.player }, // 浅拷贝对象
-            form: this.playerForm,
-            color: this.colorTheme,
-            invincible: this.isInvincible,
-            status: this.gameStatus,
-            steps: this.stepCount,
-            replay: this.replayString
-        };
-
-        this.history.push(snapshot);
-
-        // 限制历史长度 (队列)
-        if (this.history.length > this.MAX_HISTORY) {
-            this.history.shift(); // 移除最旧的一步
-        }
-    }
-    // --- [新增] 保存初始锚点 (只在关卡加载时调用一次) ---
-    recordInitialState() {
-        // 永久存一份，不做任何限制
-        this.initialSnapshot = this._createSnapshotData();
-        // 同时清空历史，确保干净
-        this.history = [];
-    }
-    // --- [新增] 彻底重置 (Reset) ---
-    resetGame() {
-        if (!this.initialSnapshot) return;
-
-        // 1. 读取初始锚点
-        const snapshot = this.initialSnapshot;
-
-        // 2. 恢复数据
-        this.gridForeground = snapshot.fg.map(row => [...row]); // 必须再次深拷贝！防止后续修改污染锚点
-        this.gridBackground = snapshot.bg.map(row => [...row]);
+        this.gridForeground = this._cloneGrid(snapshot.fg);
+        this.gridBackground = this._cloneGrid(snapshot.bg);
+        this.gridTexture = this.createGrid();
         this.syncMainToBuffer();
 
         this.player = { ...snapshot.player };
@@ -119,39 +134,53 @@ class GameState {
         this.colorTheme = snapshot.color;
         this.isInvincible = snapshot.invincible;
         this.gameStatus = snapshot.status;
+        this.stepCount = snapshot.steps;
+        this.replayString = snapshot.replay;
+        this.viewVector = snapshot.viewVector ? { ...snapshot.viewVector } : { dx: 1, dy: 0 };
+    }
 
-        // 3. 强制重置统计数据
+    syncBufferToMain() {
+        this.forEachCell((x, y) => {
+            this.gridForeground[x][y] = this.gridBuffer[x][y];
+        });
+    }
+
+    syncMainToBuffer() {
+        this.forEachCell((x, y) => {
+            this.gridBuffer[x][y] = this.gridForeground[x][y];
+        });
+    }
+
+    saveSnapshot() {
+        this.history.push(this._createSnapshotData());
+
+        if (this.history.length > this.MAX_HISTORY) {
+            this.history.shift();
+        }
+    }
+
+    recordInitialState() {
+        this.initialSnapshot = this._createSnapshotData();
+        this.history = [];
+    }
+
+    resetGame() {
+        if (!this.initialSnapshot) return;
+
+        this._applySnapshot(this.initialSnapshot);
         this.stepCount = 0;
         this.replayString = "";
         this.effects = [];
         this.animTick = 0;
-
-        // 4. 重置历史栈 (把初始状态作为新的第0步塞进去)
-        // 这样重置后，按 Undo 不会报错，但也退无可退
+        this.lightLevel = 0;
         this.history = [this._createSnapshotData()];
     }
-    // --- [新增] 恢复快照 (Undo) ---
+
     restoreSnapshot() {
         if (this.history.length === 0) return false;
 
         const snapshot = this.history.pop();
-
-        // 恢复数据
-        this.gridForeground = snapshot.fg;
-        this.gridBackground = snapshot.bg;
-
-        // 重要：恢复后，Buffer 必须立刻同步，否则逻辑会错乱
-        this.syncMainToBuffer();
-
-        this.player = snapshot.player;
-        this.playerForm = snapshot.form;
-        this.colorTheme = snapshot.color;
-        this.isInvincible = snapshot.invincible;
-        this.gameStatus = snapshot.status;
-        this.stepCount = snapshot.steps;
-        this.replayString = snapshot.replay;
-
-        // 清空特效 (避免悔棋时看到之前的爆炸残留)
+        this._applySnapshot(snapshot);
         this.effects = [];
 
         return true;

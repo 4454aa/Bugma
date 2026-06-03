@@ -24,9 +24,8 @@
 /* Canvas 容器：保持像素比例，居中 */
 #canvas-container {
     position: relative;
-    width: 672px;
-    height: 672px;
-    /* 14 * 16 * 3倍缩放 */
+    width: min(672px, 94vw, 94vh);
+    aspect-ratio: 1 / 1;
     box-shadow: 0 0 30px rgba(0, 0, 0, 0.8);
     background: #222;
 }
@@ -374,8 +373,7 @@ canvas {
 /* 响应式设计 - 小屏幕适配 */
 @media (max-width: 768px) {
     #canvas-container {
-        width: 100vw;
-        height: 100vw;
+        width: min(100vw, 100vh);
         max-height: 100vh;
     }
     
@@ -416,6 +414,16 @@ canvas {
   .lvl-card .lvl-num {
       font-size: 18px;
       font-weight: bold;
+      max-width: calc(100% - 10px);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      letter-spacing: 0;
+      line-height: 1.1;
+  }
+
+  .lvl-card.compact-label .lvl-num {
+      font-size: 12px;
   }
 
   .lvl-card .best-step {

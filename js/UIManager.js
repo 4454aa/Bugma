@@ -355,7 +355,12 @@ updateHandbookInfo() {
         if (this.dom.hud) this.dom.hud.classList.remove('hidden');
 
         if (window.loadAndRunLevel) {
-            window.loadAndRunLevel(config.id, config.color, config.levelData);
+            const loaded = window.loadAndRunLevel(config.id, config.color, config.levelData);
+            if (!loaded) {
+                if (this.dom.hud) this.dom.hud.classList.add('hidden');
+                this.goToLevelSelect(this.currentTab);
+                return;
+            }
 
             // 关键：切换状态到 GAME，交出控制权
             this.appState = 'GAME';
@@ -497,8 +502,10 @@ updateHandbookInfo() {
             
             keys.forEach(key => {
                 const level = levels[key];
+                const label = level.label || key;
                 list.push({
-                    label: key,
+                    label,
+                    title: level.name || key,
                     id: `custom_${key}`,
                     color: level.color || 0,
                     levelData: level // 直接存储关卡数据
@@ -559,6 +566,8 @@ updateHandbookInfo() {
         currentList.forEach(item => {
             const btn = document.createElement('div');
             btn.className = 'lvl-card';
+            if (String(item.label).length > 5) btn.classList.add('compact-label');
+            if (item.title) btn.title = item.title;
 
             // 构造存档 Key，与 Game.js 中的 currentLevelKey 构造方式保持一致
             let saveKey;
