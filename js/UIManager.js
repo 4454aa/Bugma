@@ -450,6 +450,10 @@ updateHandbookInfo() {
             if (this.dom.hudLvl) this.dom.hudLvl.textContent = `${config.label} (Replay)`;
             this.updateSteps(0);
         }
+
+        // 关键：将状态切换到 GAME，否则渲染器只绘制背景
+        this.appState = 'GAME';
+        this.game.gameStatus = 0;
     }
     // 设置标签切换的事件监听
     setupTabListeners() {
