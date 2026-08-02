@@ -1,0 +1,284 @@
+name: Solver campaign
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  SOLVER_BRANCH: solver-campaign-20260802
+
+jobs:
+  campaign:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: System information
+        shell: bash
+        run: |
+          set -euxo pipefail
+          lscpu
+          free -h
+          g++ --version
+
+      - name: Build Linux solver
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p cpp/build cpp/logs campaign_output
+          g++ -std=c++17 -O3 -DNDEBUG -march=native -flto \
+            -o cpp/build/bugma_solver cpp/src/main.cpp
+          ./cpp/build/bugma_solver --audit-rules | tee campaign_output/rule_audit.txt
+
+      - name: Run official and custom campaign
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cat > campaign_input.txt <<'EOF'
+          1
+          150000
+          astar
+          1.0
+          1
+          1.0
+          1
+          6.0
+          ALL
+          1
+          250000
+          astar
+          1.4
+          1
+          1.0
+          1
+          6.0
+          UNSOLVED
+          1
+          250000
+          beam
+          512
+          1
+          1.0
+          1
+          6.0
+          UNSOLVED
+          3
+          120000
+          astar
+          1.2
+          1
+          1.0
+          1
+          6.0
+          ALL
+          3
+          200000
+          beam
+          512
+          1
+          1.0
+          1
+          6.0
+          UNSOLVED
+          0
+          EOF
+          sed -i 's/^          //' campaign_input.txt
+          /usr/bin/time -v ./cpp/build/bugma_solver --interactive \
+            < campaign_input.txt 2>&1 | tee campaign_output/campaign.log
+          cp -f cpp/banmen_save_import.json campaign_output/ || true
+          cp -f cpp/banmen_save_import.js campaign_output/ || true
+
+      - name: Summarize results
+        shell: python
+        run: |
+          import json
+          import re
+          from pathlib import Path
+
+          save_path = Path('cpp/banmen_save_import.json')
+          records = {}
+          if save_path.exists():
+              records = json.loads(save_path.read_text(encoding='utf-8')).get('content', {}).get('levels', {})
+
+          expected = [str(i) for i in range(1, 53)] + ['53']
+          for color in (1, 2, 3, 4, 6):
+              expected.extend(f'{base}_c{color}' for base in range(61, 68))
+          expected.extend(str(i) for i in range(81, 94))
+          expected = list(dict.fromkeys(expected))
+
+          official_solved = [k for k in expected if records.get(k, {}).get('replay')]
+          official_unsolved = [k for k in expected if k not in official_solved]
+
+          custom_text = Path('js/custom_levels.js').read_text(encoding='utf-8')
+          custom_ids = sorted(set(re.findall(r'"(\d+-\d+)"\s*:', custom_text)))
+          custom_solved = [cid for cid in custom_ids if records.get('custom_' + cid, {}).get('replay')]
+          custom_unsolved = [cid for cid in custom_ids if cid not in custom_solved]
+
+          rows = []
+          for key, rec in records.items():
+              replay = rec.get('replay', '')
+              if replay:
+                  rows.append((key, len(replay), rec.get('expanded', 0), rec.get('elapsedMs', 0), rec.get('solverAlgorithm', '')))
+          rows.sort(key=lambda x: (x[3], x[2]), reverse=True)
+
+          summary = {
+              'official_total': len(expected),
+              'official_solved': len(official_solved),
+              'official_unsolved': official_unsolved,
+              'custom_total': len(custom_ids),
+              'custom_solved': len(custom_solved),
+              'custom_unsolved': custom_unsolved,
+              'hardest_solved': [
+                  {'key': k, 'steps': s, 'expanded': e, 'elapsed_ms': ms, 'algorithm': a}
+                  for k, s, e, ms, a in rows[:30]
+              ],
+          }
+          Path('campaign_output/summary.json').write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding='utf-8')
+          text = [
+              f"Official solved: {len(official_solved)}/{len(expected)}",
+              f"Official unsolved: {', '.join(official_unsolved) if official_unsolved else '(none)'}",
+              f"Custom solved: {len(custom_solved)}/{len(custom_ids)}",
+              f"Custom unsolved: {', '.join(custom_unsolved) if custom_unsolved else '(none)'}",
+              '',
+              'Hardest solved:',
+          ]
+          for k, s, e, ms, a in rows[:30]:
+              text.append(f'{k}: steps={s} expanded={e} time={ms}ms algo={a}')
+          Path('campaign_output/summary.txt').write_text('\n'.join(text) + '\n', encoding='utf-8')
+          print('\n'.join(text))
+
+      - name: Build Windows x64 solver
+        shell: bash
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y mingw-w64 zip
+          x86_64-w64-mingw32-g++ -std=c++17 -O3 -DNDEBUG -flto \
+            -static -static-libgcc -static-libstdc++ \
+            -o cpp/build/bugma_solver.exe cpp/src/main.cpp
+          x86_64-w64-mingw32-g++ -std=c++17 -O3 -DNDEBUG -flto \
+            -static -static-libgcc -static-libstdc++ \
+            -o cpp/build/make_replay_save.exe cpp/tools/make_replay_save.cpp
+
+      - name: Assemble Windows local package
+        shell: bash
+        run: |
+          set -euxo pipefail
+          PKG=BugmaSolverPro_Windows_x64
+          rm -rf "$PKG"
+          mkdir -p "$PKG/bin" "$PKG/js" "$PKG/cpp/src" "$PKG/cpp/tools" "$PKG/cpp/logs" "$PKG/scripts" "$PKG/results"
+          cp cpp/build/bugma_solver.exe "$PKG/bin/"
+          cp cpp/build/make_replay_save.exe "$PKG/bin/"
+          cp js/levels.js js/custom_levels.js js/generated_levels.js "$PKG/js/"
+          cp cpp/src/main.cpp cpp/src/search_algorithms.hpp "$PKG/cpp/src/"
+          cp cpp/tools/make_replay_save.cpp cpp/tools/run_solver_campaign.ps1 "$PKG/cpp/tools/"
+          cp campaign_output/summary.* "$PKG/results/" || true
+          cp campaign_output/banmen_save_import.* "$PKG/results/" || true
+          cp campaign_output/campaign.log "$PKG/results/" || true
+
+          cat > "$PKG/scripts/run_campaign.ps1" <<'PS1'
+          param(
+              [ValidateSet('main','custom','full')][string]$Mode = 'full',
+              [switch]$Aggressive
+          )
+          $ErrorActionPreference = 'Stop'
+          $Root = Split-Path -Parent $PSScriptRoot
+          Set-Location $Root
+          $Exe = Join-Path $Root 'bin\bugma_solver.exe'
+          if (-not (Test-Path $Exe)) { throw "Missing solver: $Exe" }
+          New-Item -ItemType Directory -Force -Path (Join-Path $Root 'cpp') | Out-Null
+
+          $ram = [math]::Round((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1GB)
+          if ($Aggressive -and $ram -ge 28) {
+              $n1 = 350000; $n2 = 650000; $beam = 1024
+          } elseif ($ram -ge 24) {
+              $n1 = 250000; $n2 = 450000; $beam = 768
+          } else {
+              $n1 = 150000; $n2 = 260000; $beam = 512
+          }
+          Write-Host "Detected RAM: ${ram}GB; budgets: $n1 / $n2, beam=$beam"
+
+          $lines = New-Object System.Collections.Generic.List[string]
+          function Add-AStar([int]$source, [int]$nodes, [double]$weight, [string]$selector) {
+              foreach ($x in @($source,$nodes,'astar',$weight,1,1.0,1,6.0,$selector)) { $lines.Add([string]$x) }
+          }
+          function Add-Beam([int]$source, [int]$nodes, [int]$width, [string]$selector) {
+              foreach ($x in @($source,$nodes,'beam',$width,1,1.0,1,6.0,$selector)) { $lines.Add([string]$x) }
+          }
+          if ($Mode -in @('main','full')) {
+              Add-AStar 1 $n1 1.0 'ALL'
+              Add-AStar 1 $n2 1.4 'UNSOLVED'
+              Add-Beam 1 $n2 $beam 'UNSOLVED'
+          }
+          if ($Mode -in @('custom','full')) {
+              Add-AStar 3 $n1 1.2 'ALL'
+              Add-Beam 3 $n2 $beam 'UNSOLVED'
+          }
+          $lines.Add('0')
+          $stamp = Get-Date -Format 'yyyyMMdd_HHmmss'
+          $log = Join-Path $Root "results\campaign_$stamp.log"
+          New-Item -ItemType Directory -Force -Path (Join-Path $Root 'results') | Out-Null
+          (($lines -join "`n") + "`n") | & $Exe --interactive 2>&1 | Tee-Object -FilePath $log
+          if (Test-Path 'cpp\banmen_save_import.json') {
+              Copy-Item 'cpp\banmen_save_import.json' (Join-Path $Root 'results\banmen_save_import.json') -Force
+          }
+          Write-Host "Finished. Log: $log"
+          PS1
+
+          cat > "$PKG/run_main100.bat" <<'BAT'
+          @echo off
+          cd /d "%~dp0"
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run_campaign.ps1 -Mode main
+          pause
+          BAT
+          cat > "$PKG/run_custom.bat" <<'BAT'
+          @echo off
+          cd /d "%~dp0"
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run_campaign.ps1 -Mode custom
+          pause
+          BAT
+          cat > "$PKG/run_full_campaign.bat" <<'BAT'
+          @echo off
+          cd /d "%~dp0"
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run_campaign.ps1 -Mode full
+          pause
+          BAT
+          cat > "$PKG/run_full_aggressive_32GB.bat" <<'BAT'
+          @echo off
+          cd /d "%~dp0"
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run_campaign.ps1 -Mode full -Aggressive
+          pause
+          BAT
+          cat > "$PKG/README_CN.txt" <<'TXT'
+          Bugma Solver Pro - Windows x64
+
+          1. 双击 run_main100.bat：求解官方 UI 主线集合（当前求解器清单为 101 项）。
+          2. 双击 run_custom.bat：求解仓库内置用户自制关卡。
+          3. 双击 run_full_campaign.bat：依次运行两者。
+          4. 只有 32GB 及以上内存时再使用 run_full_aggressive_32GB.bat。
+
+          求解器为 CPU 搜索，RTX 4070 不参与。请在 Armoury Crate 中使用增强/狂暴模式并接通电源。
+          运行结果保存到 results，banmen_save_import.json 可导入网页版游戏 DATA I/O。
+          16GB 内存不要把单关 A* 节点预算轻易提高到 50 万以上；固定 48x48 状态会造成较大内存占用。
+          TXT
+
+          zip -r BugmaSolverPro_Windows_x64.zip "$PKG"
+          cp BugmaSolverPro_Windows_x64.zip campaign_output/
+
+      - name: Upload campaign artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bugma-solver-campaign
+          path: |
+            campaign_output
+            BugmaSolverPro_Windows_x64.zip
+          if-no-files-found: warn
+          retention-days: 14
